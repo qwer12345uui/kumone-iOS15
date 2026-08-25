@@ -5,7 +5,7 @@ import KumoneIOSFeature
 struct KumoneIOSApp: App {
     var body: some Scene {
         WindowGroup {
-            IOSMainWindow()
+            IOS15MainWindow()
         }
     }
 }

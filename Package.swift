@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .executable(name: "Kumone", targets: ["KumoneLauncher"]),
         .library(name: "KumoneCore", targets: ["KumoneCore"]),
+        .library(name: "KumoneIOS15Core", targets: ["KumoneIOS15Core"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.5"),
@@ -20,6 +21,14 @@ let package = Package(
             ],
             path: "Sources/Kumone",
             exclude: ["Resources"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .target(
+            name: "KumoneIOS15Core",
+            dependencies: [],
+            path: "Sources/KumoneIOS15Core",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]

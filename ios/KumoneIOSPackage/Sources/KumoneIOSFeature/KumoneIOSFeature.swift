@@ -1,2 +1,2 @@
-@_exported import KumoneCore
+@_exported import KumoneIOS15Core
 import SwiftUI
