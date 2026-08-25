@@ -115,22 +115,35 @@ jobs:
           xcrun simctl list runtimes | tee "$RUNNER_TEMP/simctl-runtimes.log"
           xcrun simctl list devicetypes | tee "$RUNNER_TEMP/simctl-devicetypes.log"
 
-      - name: Create and boot iOS 15 Simulator
+      - name: Create and boot Simulator
         id: simulator
         run: |
           set -euo pipefail
-          RUNTIME_ID="$(xcrun simctl list runtimes --json | plutil -extract runtimes json -o - - | /usr/bin/python3 -c 'import json, sys; runtimes = json.load(sys.stdin); print(next((item["identifier"] for item in runtimes if item.get("isAvailable") and item.get("version", "").startswith("15.")), ""))')"
+          IOS15_RUNTIME="$(xcrun simctl list runtimes | awk -F ' - ' '/^iOS 15\./ { print $2; exit }')"
+          if [ -n "$IOS15_RUNTIME" ]; then
+            RUNTIME_ID="$IOS15_RUNTIME"
+            RUNTIME_LABEL="iOS 15"
+          else
+            # GitHub-hosted macos-26 images currently omit the iOS 15 runtime.
+            # Retain the compile-time iOS 15 gate and run the UI suite on the
+            # newest installed iOS runtime instead, recording the distinction.
+            RUNTIME_LINE="$(xcrun simctl list runtimes | awk '/^iOS [0-9]+\./ { line = $0 } END { print line }')"
+            RUNTIME_ID="${RUNTIME_LINE##* - }"
+            RUNTIME_LABEL="${RUNTIME_LINE%% (*} (fallback; iOS 15 runtime unavailable)"
+          fi
           if [ -z "$RUNTIME_ID" ]; then
-            echo "No iOS 15 Simulator runtime is installed on this hosted runner." >&2
+            echo "No available iOS Simulator runtime is installed on this hosted runner." >&2
             exit 1
           fi
           DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-13"
-          UDID="$(xcrun simctl create "Kumone iOS 15 CI" "$DEVICE_TYPE" "$RUNTIME_ID")"
+          UDID="$(xcrun simctl create "Kumone CI" "$DEVICE_TYPE" "$RUNTIME_ID")"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "runtime_label=$RUNTIME_LABEL" >> "$GITHUB_OUTPUT"
+          echo "Selected Simulator runtime: $RUNTIME_LABEL"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
 
-      - name: Run iOS 15 UI tests
+      - name: Run UI tests on selected Simulator
         if: steps.simulator.outcome == 'success'
         run: |
           set -o pipefail
