@@ -176,9 +176,12 @@ final class IOS15MusicStore: ObservableObject {
     private let playHistoryKey = "kumone.ios15.play-history.v1"
     private var player: AVPlayer?
     private var remoteCommandsInstalled = false
+    private var audioObservers: [NSObjectProtocol] = []
+    private var wasPlayingBeforeInterruption = false
 
     init() {
         loadPlayHistory()
+        installAudioSessionObservers()
     }
 
     func loadRecommendations(force: Bool = false) async {
@@ -241,6 +244,7 @@ final class IOS15MusicStore: ObservableObject {
                 return
             }
             try configurePlaybackSession()
+            self.player?.pause()
             let player = AVPlayer(url: url)
             self.player = player
             installRemoteCommandsIfNeeded()
@@ -291,6 +295,92 @@ final class IOS15MusicStore: ObservableObject {
         try session.setActive(true)
     }
 
+    private func installAudioSessionObservers() {
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+
+        audioObservers.append(
+            center.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: session,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    self?.handleAudioInterruption(notification)
+                }
+            }
+        )
+
+        audioObservers.append(
+            center.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: session,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    self?.handleAudioRouteChange(notification)
+                }
+            }
+        )
+
+        audioObservers.append(
+            center.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.restoreAudioSessionAfterActivation()
+                }
+            }
+        )
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard let typeNumber = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber,
+              let type = AVAudioSession.InterruptionType(rawValue: typeNumber.uintValue)
+        else { return }
+
+        switch type {
+        case .began:
+            wasPlayingBeforeInterruption = isPlaying
+            if isPlaying {
+                isPlaying = false
+                refreshNowPlayingPlaybackState()
+            }
+        case .ended:
+            let optionsNumber = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? NSNumber
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsNumber?.uintValue ?? 0)
+            let shouldResume = wasPlayingBeforeInterruption && options.contains(.shouldResume)
+            wasPlayingBeforeInterruption = false
+            if shouldResume {
+                resumePlayback()
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleAudioRouteChange(_ notification: Notification) {
+        guard let reasonNumber = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonNumber.uintValue)
+        else { return }
+
+        // Removing headphones is an explicit user-context change. Pause instead of
+        // unexpectedly moving private audio to the device speaker.
+        if reason == .oldDeviceUnavailable && isPlaying {
+            pausePlayback()
+        }
+    }
+
+    private func restoreAudioSessionAfterActivation() {
+        guard currentTrack != nil else { return }
+        // Reassert the category after foregrounding without forcing playback if the
+        // user intentionally paused from the lock screen or Control Center.
+        try? configurePlaybackSession()
+        refreshNowPlayingPlaybackState()
+    }
+
     private func installRemoteCommandsIfNeeded() {
         guard !remoteCommandsInstalled else { return }
         remoteCommandsInstalled = true
@@ -319,9 +409,16 @@ final class IOS15MusicStore: ObservableObject {
 
     private func resumePlayback() {
         guard let player else { return }
-        player.play()
-        isPlaying = true
-        refreshNowPlayingPlaybackState()
+        do {
+            try configurePlaybackSession()
+            player.play()
+            isPlaying = true
+            refreshNowPlayingPlaybackState()
+        } catch {
+            errorMessage = "无法恢复系统音频会话，请检查音频输出后重试。"
+            isPlaying = false
+            refreshNowPlayingPlaybackState()
+        }
     }
 
     private func pausePlayback() {
