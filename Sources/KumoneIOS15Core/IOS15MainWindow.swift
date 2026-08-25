@@ -13,34 +13,32 @@ public struct IOS15MainWindow: View {
     @State private var selectedTab = IOS15Tab.home
     @State private var selectionFeedback = UISelectionFeedbackGenerator()
 
-    public init() {}
+    public init() {
+        // The standard tab bar is replaced by an accessible SwiftUI bar below.
+        // Hiding it at appearance time retains TabView's content switching while
+        // avoiding a second navigation layer behind the floating glass container.
+        UITabBar.appearance().isHidden = true
+    }
 
     public var body: some View {
         TabView(selection: $selectedTab) {
             IOS15HomeTab(store: store, account: account)
-                .tabItem {
-                    Label("推荐", systemImage: "house.fill")
-                }
                 .tag(IOS15Tab.home)
 
-            IOS15DiscoverTab(store: store)
-                .tabItem {
-                    Label("精选", systemImage: "square.grid.2x2.fill")
-                }
-                .tag(IOS15Tab.discover)
+            IOS15ProfileTab(account: account)
+                .tag(IOS15Tab.profile)
 
             IOS15SearchTab(store: store)
-                .tabItem {
-                    Label("搜索", systemImage: "magnifyingglass")
-                }
                 .tag(IOS15Tab.search)
         }
-        // UITabBar owns the equal-width hit targets, materials, VoiceOver order,
-        // and bottom safe area. There are no custom drag gestures in this flow.
-        // When built with the iOS 26 SDK, the standard tab bar automatically adopts
-        // Liquid Glass. Keep its background system-managed instead of layering a
-        // custom blur or glass effect over it.
-        .liquidGlassTabBarBehavior()
+        // A safe-area inset places the visual frame above the home indicator
+        // without adding a drag recognizer that could steal page scrolling.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            IOS15GlassTabBar(selection: $selectedTab)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+        }
         .onAppear {
             selectionFeedback.prepare()
         }
@@ -56,24 +54,99 @@ public struct IOS15MainWindow: View {
     }
 }
 
-private extension View {
-    /// iOS 26's native tab bar floats in the Liquid Glass navigation layer. The
-    /// system, rather than a custom gesture, detects scroll direction and handles
-    /// expansion, minimization, materials, accessibility, and safe areas.
-    @ViewBuilder
-    func liquidGlassTabBarBehavior() -> some View {
-        if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            self
+private enum IOS15Tab: CaseIterable, Hashable {
+    case home
+    case profile
+    case search
+
+    var title: String {
+        switch self {
+        case .home: return "首页"
+        case .profile: return "我的"
+        case .search: return "搜索"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .home: return "house.fill"
+        case .profile: return "person.crop.circle.fill"
+        case .search: return "magnifyingglass"
         }
     }
 }
 
-private enum IOS15Tab: Hashable {
-    case home
-    case discover
-    case search
+private struct IOS15GlassTabBar: View {
+    @Binding var selection: IOS15Tab
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        glassContainer
+            .accessibilityElement(children: .contain)
+    }
+
+    private var glassContainer: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                tabItems
+                    .glassEffect(.regular.interactive(), in: Capsule())
+            } else {
+                tabItems
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(fallbackBorderColor, lineWidth: 1))
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.32 : 0.14), radius: 18, y: 8)
+            }
+        }
+    }
+
+    private var tabItems: some View {
+        HStack(spacing: 0) {
+            ForEach(IOS15Tab.allCases, id: \.self) { tab in
+                Button {
+                    selection = tab
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: tab.symbolName)
+                            .font(.system(size: 23, weight: .semibold))
+                        Text(tab.title)
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .foregroundStyle(selection == tab ? Color.pink : inactiveForeground)
+                    .frame(maxWidth: .infinity, minHeight: 68)
+                    .background {
+                        if selection == tab {
+                            Capsule(style: .continuous)
+                                .fill(selectedFill)
+                                .padding(4)
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel(tab.title)
+                .accessibilityAddTraits(selection == tab ? .isSelected : [])
+            }
+        }
+        .padding(4)
+    }
+
+    private var selectedFill: Color {
+        colorScheme == .dark
+            ? Color.pink.opacity(0.34)
+            : Color.pink.opacity(0.18)
+    }
+
+    private var inactiveForeground: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.92)
+            : Color.black.opacity(0.88)
+    }
+
+    private var fallbackBorderColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.16)
+            : Color.white.opacity(0.72)
+    }
 }
 
 @MainActor

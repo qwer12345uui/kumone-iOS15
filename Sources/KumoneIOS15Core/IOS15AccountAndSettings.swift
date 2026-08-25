@@ -532,3 +532,91 @@ struct IOS15LoginSheet: View {
         return UIImage(cgImage: image)
     }
 }
+
+struct IOS15ProfileTab: View {
+    @ObservedObject var account: IOS15AccountStore
+    @State private var showSettings = false
+    @State private var showLogin = false
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    if let profile = account.profile {
+                        HStack(spacing: 14) {
+                            AsyncImage(url: profile.avatarUrl?.resizedImageURL(160)) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Color.secondary.opacity(0.16)
+                            }
+                            .frame(width: 60, height: 60)
+                            .clipShape(Circle())
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(profile.nickname)
+                                    .font(.headline)
+                                Text("已登录网易云音乐")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        Button {
+                            showLogin = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.crop.circle.badge.plus")
+                                    .font(.system(size: 34))
+                                    .foregroundColor(.pink)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("登录网易云音乐")
+                                        .font(.headline)
+                                    Text("支持扫码或手机号验证码登录")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 5)
+                        }
+                    }
+                }
+
+                Section(header: Text("账户与应用")) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Label("设置", systemImage: "gearshape")
+                    }
+                    if account.isLoggedIn {
+                        Button("退出登录", role: .destructive) {
+                            Task { await account.logout() }
+                        }
+                    }
+                }
+            }
+            .listStyle(InsetGroupedListStyle())
+            .navigationBarTitle("我的", displayMode: .large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("设置")
+                }
+            }
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .sheet(isPresented: $showSettings) {
+            IOS15SettingsView(account: account)
+        }
+        .sheet(isPresented: $showLogin) {
+            IOS15LoginSheet(account: account)
+        }
+        .task {
+            await account.refresh()
+        }
+    }
+}
