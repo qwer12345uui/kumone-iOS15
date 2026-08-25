@@ -114,6 +114,11 @@ struct LyricsPanel: View {
             player.seek(to: line.time)
         } label: {
             VStack(alignment: .leading, spacing: 3) {
+                if settings.showLyricsRomaji, let romaji = line.romaji {
+                    Text(romaji)
+                        .font(.system(size: isActive ? 12 : 11))
+                        .foregroundStyle(isActive ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                }
                 Text(line.text.isEmpty ? "♪" : line.text)
                     .font(.system(size: isActive ? 16 : 14, weight: isActive ? .bold : .medium))
                     .foregroundStyle(isActive ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))

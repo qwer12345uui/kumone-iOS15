@@ -246,6 +246,8 @@ struct TrackListView: View {
     var style: TrackRowStyle = .full
     var privileges: [Int: TrackPrivilege] = [:]
     var source: PlaySource = .none
+    /// The place this list belongs to, for the Dock menu's recents.
+    var context: PlayContext?
     var removableFromPlaylistID: Int?
     var onRemoved: ((Track) -> Void)?
 
@@ -263,7 +265,8 @@ struct TrackListView: View {
                     removableFromPlaylistID: removableFromPlaylistID,
                     onRemoved: { onRemoved?(track) }
                 ) {
-                    player.play(tracks: playableTracks, source: source, startAt: track)
+                    player.play(tracks: playableTracks, source: source, startAt: track,
+                                context: context)
                 }
             }
         }

@@ -29,6 +29,10 @@ struct SettingsView: View {
                     }
                 }
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
+                Toggle("显示日文歌词罗马音", isOn: $settings.showLyricsRomaji)
+                Text("日文歌词上方显示罗马音，缺少官方罗马音时自动生成读音")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 #if os(macOS)
                 Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
                 Text("在屏幕上悬浮显示当前歌词，可拖动调整位置")

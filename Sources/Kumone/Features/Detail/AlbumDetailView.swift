@@ -39,7 +39,8 @@ struct AlbumDetailView: View {
 
                     TrackListView(
                         tracks: tracks,
-                        source: .album(albumID)
+                        source: .album(albumID),
+                        context: .album(id: albumID, name: album.name)
                     )
                     .padding(.horizontal, isCompact ? 6 : Theme.Layout.contentInset - 10)
 
@@ -177,7 +178,8 @@ struct AlbumDetailView: View {
             // Compact Action Bar
             HStack(spacing: 10) {
                 Button {
-                    player.play(tracks: tracks, source: .album(albumID))
+                    player.play(tracks: tracks, source: .album(albumID),
+                                context: .album(id: albumID, name: album.name))
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "play.fill")
@@ -265,7 +267,8 @@ struct AlbumDetailView: View {
 
                 HStack(spacing: 10) {
                     Button {
-                        player.play(tracks: tracks, source: .album(albumID))
+                        player.play(tracks: tracks, source: .album(albumID),
+                                context: .album(id: albumID, name: album.name))
                     } label: {
                         Label("播放", systemImage: "play.fill")
                             .font(.system(size: 13, weight: .semibold))

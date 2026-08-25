@@ -41,7 +41,7 @@ struct NowPlayingView: View {
                         .background(.white.opacity(0.12), in: Circle())
                 }
                 .buttonStyle(.pressable)
-                .padding(.top, 16)
+                .padding(.top, 20)
                 .padding(.leading, 20)
             }
             .overlay(alignment: .topTrailing) {
@@ -58,11 +58,18 @@ struct NowPlayingView: View {
                             .background(.white.opacity(0.12), in: Circle())
                     }
                     .buttonStyle(.pressable)
-                    .padding(.top, 16)
+                    .padding(.top, 20)
                     .padding(.trailing, 20)
                 }
             }
         }
+        #if os(macOS)
+        // The window toolbar is hidden while this page is up, but SwiftUI keeps
+        // reserving its safe area, which pushed the whole immersive layout —
+        // close button included — a toolbar's height down from the window top.
+        // iOS keeps its safe area: there the inset is the status bar / notch.
+        .ignoresSafeArea()
+        #endif
         .preferredColorScheme(.dark)
         .task(id: player.currentTrack?.id) {
             await loadArtwork()
@@ -400,6 +407,11 @@ struct NowPlayingView: View {
             player.seek(to: line.time)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
+                if settings.showLyricsRomaji, let romaji = line.romaji {
+                    Text(romaji)
+                        .font(.system(size: isActive ? 15 : 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
+                }
                 Text(line.text.isEmpty ? "♪" : line.text)
                     .font(.system(size: isActive ? 26 : 20, weight: isActive ? .bold : .semibold))
                     .foregroundStyle(.white.opacity(isActive ? 1 : 0.45))

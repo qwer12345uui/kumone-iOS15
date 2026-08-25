@@ -60,6 +60,7 @@ final class SettingsManager: ObservableObject {
         static let quality = "settings.audioQuality"
         static let appearance = "settings.appearance"
         static let showTranslation = "settings.showLyricsTranslation"
+        static let showRomaji = "settings.showLyricsRomaji"
         static let volume = "settings.volume"
         static let fmMode = "settings.fmMode"
         static let unblock = "settings.enableUnblock"
@@ -78,6 +79,11 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(showLyricsTranslation, forKey: Keys.showTranslation) }
     }
 
+    /// Romaji line above Japanese lyrics.
+    @Published var showLyricsRomaji: Bool {
+        didSet { UserDefaults.standard.set(showLyricsRomaji, forKey: Keys.showRomaji) }
+    }
+
     /// Resolve gray tracks from third-party sources (UnblockNeteaseMusic-style).
     @Published var enableUnblock: Bool {
         didSet { UserDefaults.standard.set(enableUnblock, forKey: Keys.unblock) }
@@ -93,6 +99,7 @@ final class SettingsManager: ObservableObject {
         audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init) ?? .exhigh
         appearance = defaults.string(forKey: Keys.appearance).flatMap(AppAppearance.init) ?? .auto
         showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true
+        showLyricsRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? true
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
     }

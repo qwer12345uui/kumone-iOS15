@@ -45,7 +45,8 @@ struct ArtistDetailView: View {
                         TrackListView(
                             tracks: hotSongs,
                             style: .compact,
-                            source: .artist(artistID)
+                            source: .artist(artistID),
+                            context: .artist(id: artistID, name: artist.name)
                         )
                         .padding(.horizontal, isCompact ? 6 : Theme.Layout.contentInset - 10)
                     }
@@ -179,7 +180,8 @@ struct ArtistDetailView: View {
             // Compact Action Bar
             HStack(spacing: 10) {
                 Button {
-                    player.play(tracks: hotSongs, source: .artist(artistID))
+                    player.play(tracks: hotSongs, source: .artist(artistID),
+                                context: .artist(id: artistID, name: artist.name))
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "play.fill")
@@ -239,7 +241,8 @@ struct ArtistDetailView: View {
 
                 HStack(spacing: 10) {
                     Button {
-                        player.play(tracks: hotSongs, source: .artist(artistID))
+                        player.play(tracks: hotSongs, source: .artist(artistID),
+                                context: .artist(id: artistID, name: artist.name))
                     } label: {
                         Label("播放热门", systemImage: "play.fill")
                             .font(.system(size: 13, weight: .semibold))

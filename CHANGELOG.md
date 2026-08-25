@@ -6,6 +6,22 @@
 section the English bullets come first, followed by their Simplified Chinese
 counterparts. 段落格式：`## <版本号> - <日期>`，条目必须写成单行。
 
+## 0.3.5 - 2026-08-25
+
+### Added / 新增
+
+- Dock menu (right-click the Dock icon): play/pause, next, previous, shuffle, a repeat submenu, and the last six places playback started from — playlists, albums, artists, daily recommendations, cloud disk, the play-record list, heartbeat mode and personal FM. Picking one reloads it and plays; heartbeat mode and personal FM are regenerated rather than resumed, since neither is a fixed list. Thanks @XerWandeRer (#24).
+- Dock 菜单（右键 Dock 图标）：播放/暂停、下一首、上一首、随机播放、循环模式子菜单，以及最近播放过的 6 个来源——歌单、专辑、歌手、每日推荐、音乐云盘、最近播放、心动模式、私人漫游。点击即重新载入并播放；心动模式与私人漫游会重新生成而非恢复原队列，因为它们本就不是固定歌单。感谢 @XerWandeRer（#24）。
+- Romaji above Japanese lyrics (romaji / original / translation) on the full-screen now-playing lyrics and the side lyrics panel. Netease's hand-checked `romalrc` is used when present, otherwise an offline system transcription fills the gaps; Japanese-only, off by default (Settings → Appearance). Thanks @XerWandeRer (#25).
+- 日文歌词上方显示罗马音（罗马音 / 原文 / 翻译），覆盖全屏播放页大歌词与右侧歌词面板。有网易云人工校对的 `romalrc` 时优先使用，缺失时用系统离线转写兜底；仅日文歌触发，默认关闭（设置 → 外观）。感谢 @XerWandeRer（#25）。
+
+### Fixed / 修复
+
+- macOS: the window no longer grows by the sidebar's width every time the immersive now-playing page is dismissed. The window minimum was a SwiftUI content constraint, so while the now-playing page collapsed the sidebar the whole 1020pt minimum landed on the detail column; restoring the sidebar then forced the window to 1248pt. The minimum is now reduced by the sidebar width while it is collapsed. Thanks @XerWandeRer (#23, the real fix for #19).
+- macOS：退出沉浸式播放页时窗口不再每次都变宽一个侧边栏的宽度。窗口最小宽度原本是 SwiftUI 内容约束，播放页折叠侧边栏时 1020pt 下限全落在详情列上，恢复侧边栏后被撑到 1248pt；现在折叠期间会减去侧边栏宽度。感谢 @XerWandeRer（#23，真正修复 #19）。
+- macOS: the immersive now-playing page no longer leaves a toolbar's worth of empty space at the top — the toolbar is hidden there but SwiftUI kept reserving its safe area, pushing the close button ~68pt down. The button insets are also even now (20pt both edges). Thanks @XerWandeRer (#24).
+- macOS：沉浸式播放页顶部不再多出一个工具栏高度的空白——该页隐藏了工具栏，但 SwiftUI 仍为其保留安全区域，把收起按钮推到距顶部约 68pt；按钮四边间距也统一为 20pt。感谢 @XerWandeRer（#24）。
+
 ## 0.3.4 - 2026-08-25
 
 ### Fixed / 修复

@@ -111,6 +111,7 @@ struct PlaylistDetailView: View {
                         tracks: model.filteredTracks,
                         privileges: model.privileges,
                         source: .playlist(playlistID),
+                        context: model.detail.map { .playlist(id: playlistID, name: $0.name) },
                         removableFromPlaylistID: isOwnPlaylist ? playlistID : nil,
                         onRemoved: { model.remove($0) }
                     )
@@ -216,7 +217,8 @@ struct PlaylistDetailView: View {
             // Compact Action Bar
             HStack(spacing: 10) {
                 Button {
-                    player.play(tracks: playable, source: .playlist(playlistID))
+                    player.play(tracks: playable, source: .playlist(playlistID),
+                                context: model.detail.map { .playlist(id: playlistID, name: $0.name) })
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "play.fill")
@@ -325,7 +327,8 @@ struct PlaylistDetailView: View {
     private func actionRow(_ detail: PlaylistDetail) -> some View {
         HStack(spacing: 10) {
             Button {
-                player.play(tracks: playable, source: .playlist(playlistID))
+                player.play(tracks: playable, source: .playlist(playlistID),
+                            context: .playlist(id: playlistID, name: detail.name))
             } label: {
                 Label("播放全部", systemImage: "play.fill")
                     .font(.system(size: 13, weight: .semibold))
@@ -397,7 +400,7 @@ struct PlaylistDetailView: View {
                     ToastCenter.shared.show(String(localized: "心动模式暂时不可用"))
                     return
                 }
-                player.play(tracks: tracks, source: .playlist(playlistID))
+                player.play(tracks: tracks, source: .playlist(playlistID), context: .heartbeat)
                 ToastCenter.shared.show(String(localized: "已开启心动模式"))
             } catch {
                 ToastCenter.shared.show(error.localizedDescription)

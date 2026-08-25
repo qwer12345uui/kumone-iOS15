@@ -281,7 +281,8 @@ struct HomeView: View {
                     ToastCenter.shared.show(String(localized: "心动模式暂时不可用"))
                     return
                 }
-                player.play(tracks: tracks, source: .playlist(likedList.id))
+                player.play(tracks: tracks, source: .playlist(likedList.id),
+                            context: .heartbeat)
                 ToastCenter.shared.show(String(localized: "已开启心动模式"))
             } catch {
                 ToastCenter.shared.show(error.localizedDescription)
@@ -318,7 +319,8 @@ struct HomeView: View {
             ) {
                 Task {
                     if let detail = try? await NeteaseAPI.album(id: album.id) {
-                        player.play(tracks: detail.songs, source: .album(album.id))
+                        player.play(tracks: detail.songs, source: .album(album.id),
+                                    context: .album(id: album.id, name: album.name))
                     }
                 }
             }
@@ -376,7 +378,8 @@ struct HomeView: View {
                 let ids = detail.playlist.trackIds.map(\.id)
                 tracks = (try? await NeteaseAPI.songDetails(ids: Array(ids.prefix(500))))?.songs ?? []
             }
-            player.play(tracks: tracks, source: .playlist(id))
+            player.play(tracks: tracks, source: .playlist(id),
+                        context: .playlist(id: id, name: detail.playlist.name))
         }
     }
 }

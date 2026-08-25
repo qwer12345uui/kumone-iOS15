@@ -157,7 +157,8 @@ struct ExploreView: View {
                 let ids = detail.playlist.trackIds.map(\.id)
                 tracks = (try? await NeteaseAPI.songDetails(ids: Array(ids.prefix(500))))?.songs ?? []
             }
-            player.play(tracks: tracks, source: .playlist(id))
+            player.play(tracks: tracks, source: .playlist(id),
+                        context: .playlist(id: id, name: detail.playlist.name))
         }
     }
 }
