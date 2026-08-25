@@ -21,7 +21,7 @@ struct IOS15MiniPlayer: View {
                         compactPlayer(for: track)
                     }
                 }
-                .frame(height: 92)
+                .frame(height: 124)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -76,23 +76,45 @@ struct IOS15MiniPlayer: View {
     @ViewBuilder
     private func compactPlayer(for track: Track) -> some View {
         VStack(spacing: 6) {
-            HStack(spacing: 10) {
+            HStack(spacing: 5) {
                 trackIdentity(track)
-                Spacer(minLength: 2)
-                compactButton(symbol: "backward.end.fill", label: "上一曲", action: store.playPrevious)
-                playPauseButton
-                compactButton(symbol: "forward.end.fill", label: "下一曲", action: store.playNext)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    lyricsTrack = track
+                } label: {
+                    Image(systemName: "quote.bubble")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("歌词")
+
                 Button {
                     showQueue = true
                 } label: {
                     Image(systemName: "list.bullet")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 30, height: 30)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel("播放队列")
+
+                Button(action: store.toggleMuted) {
+                    Image(systemName: store.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel(store.isMuted ? "取消静音" : "静音")
             }
-            progressControl(for: track)
+
+            HStack(spacing: 18) {
+                compactButton(symbol: "backward.end.fill", label: "上一曲", action: store.playPrevious)
+                playPauseButton
+                compactButton(symbol: "forward.end.fill", label: "下一曲", action: store.playNext)
+                progressControl(for: track)
+            }
         }
     }
 
