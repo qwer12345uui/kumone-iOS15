@@ -534,9 +534,24 @@ struct IOS15LoginSheet: View {
 }
 
 struct IOS15ProfileTab: View {
+    @ObservedObject var store: IOS15MusicStore
     @ObservedObject var account: IOS15AccountStore
     @State private var showSettings = false
     @State private var showLogin = false
+
+    private var historyHeader: some View {
+        HStack {
+            Text("播放历史")
+            Spacer()
+            if !store.playHistory.isEmpty {
+                Button("清空") {
+                    store.clearPlayHistory()
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+        }
+    }
 
     var body: some View {
         NavigationView {
@@ -578,6 +593,22 @@ struct IOS15ProfileTab: View {
                                 }
                             }
                             .padding(.vertical, 5)
+                        }
+                    }
+                }
+
+                Section(header: historyHeader) {
+                    if store.playHistory.isEmpty {
+                        Text("暂无播放记录")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(store.playHistory) { track in
+                            Button {
+                                Task { await store.play(track) }
+                            } label: {
+                                IOS15TrackRow(track: track, isCurrent: store.currentTrack?.id == track.id)
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 }

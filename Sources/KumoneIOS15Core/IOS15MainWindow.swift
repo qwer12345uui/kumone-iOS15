@@ -26,7 +26,7 @@ public struct IOS15MainWindow: View {
             IOS15HomeTab(store: store, account: account)
                 .tag(IOS15Tab.home)
 
-            IOS15ProfileTab(account: account)
+            IOS15ProfileTab(store: store, account: account)
                 .tag(IOS15Tab.profile)
 
             IOS15SearchTab(store: store)
@@ -171,9 +171,15 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var currentTrack: Track?
     @Published private(set) var isPlaying = false
+    @Published private(set) var playHistory: [Track] = []
 
+    private let playHistoryKey = "kumone.ios15.play-history.v1"
     private var player: AVPlayer?
     private var remoteCommandsInstalled = false
+
+    init() {
+        loadPlayHistory()
+    }
 
     func loadRecommendations(force: Bool = false) async {
         guard force || recommendations.isEmpty, !isLoadingRecommendations else { return }
@@ -240,10 +246,34 @@ final class IOS15MusicStore: ObservableObject {
             installRemoteCommandsIfNeeded()
             player.play()
             isPlaying = true
+            recordPlayback(of: track)
             publishNowPlayingInfo(for: track)
         } catch {
             errorMessage = "播放地址获取失败，请稍后重试。"
             isPlaying = false
+        }
+    }
+
+    func clearPlayHistory() {
+        playHistory = []
+        UserDefaults.standard.removeObject(forKey: playHistoryKey)
+    }
+
+    private func loadPlayHistory() {
+        guard let data = UserDefaults.standard.data(forKey: playHistoryKey),
+              let tracks = try? JSONDecoder().decode([Track].self, from: data)
+        else { return }
+        playHistory = tracks
+    }
+
+    private func recordPlayback(of track: Track) {
+        playHistory.removeAll { $0.id == track.id }
+        playHistory.insert(track, at: 0)
+        if playHistory.count > 100 {
+            playHistory.removeLast(playHistory.count - 100)
+        }
+        if let data = try? JSONEncoder().encode(playHistory) {
+            UserDefaults.standard.set(data, forKey: playHistoryKey)
         }
     }
 
@@ -590,7 +620,7 @@ private struct IOS15PlaylistRow: View {
     }
 }
 
-private struct IOS15TrackRow: View {
+struct IOS15TrackRow: View {
     let track: Track
     let isCurrent: Bool
 
@@ -618,27 +648,36 @@ private struct IOS15TrackRow: View {
 
 private struct IOS15MiniPlayer: View {
     @ObservedObject var store: IOS15MusicStore
+    @State private var lyricsTrack: Track?
 
     var body: some View {
         if let track = store.currentTrack {
             HStack(spacing: 12) {
-                AsyncImage(url: track.album.picUrl?.resizedImageURL(96)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.secondary.opacity(0.16)
-                }
-                .frame(width: 38, height: 38)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Button {
+                    lyricsTrack = track
+                } label: {
+                    HStack(spacing: 12) {
+                        AsyncImage(url: track.album.picUrl?.resizedImageURL(96)) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Color.secondary.opacity(0.16)
+                        }
+                        .frame(width: 38, height: 38)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(track.artistNames)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(track.name)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(track.artistNames)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("显示歌词")
                 Spacer(minLength: 0)
                 Button(action: store.togglePlayback) {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
@@ -659,6 +698,9 @@ private struct IOS15MiniPlayer: View {
             .padding(.vertical, 8)
             .background(.thinMaterial)
             .overlay(Divider(), alignment: .top)
+            .sheet(item: $lyricsTrack) { track in
+                IOS15LyricsSheet(track: track)
+            }
         }
     }
 }
