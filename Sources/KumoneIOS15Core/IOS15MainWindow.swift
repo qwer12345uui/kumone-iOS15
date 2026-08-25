@@ -320,7 +320,6 @@ final class IOS15MusicStore: ObservableObject {
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         let player = AVPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = true
-        player.defaultRate = playbackRate
         self.player = player
         installPlaybackTimeObserver(on: player)
         installItemEndObserver(for: item)
@@ -440,7 +439,6 @@ final class IOS15MusicStore: ObservableObject {
         let rates: [Float] = [1.0, 1.25, 1.5, 2.0]
         let index = rates.firstIndex(where: { abs($0 - playbackRate) < 0.01 }) ?? 0
         playbackRate = rates[(index + 1) % rates.count]
-        player?.defaultRate = playbackRate
         if isPlaying {
             player?.rate = playbackRate
         }
