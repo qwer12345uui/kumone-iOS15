@@ -23,9 +23,14 @@ on:
         required: false
         type: boolean
         default: true
+      commit_ipa_to_repository:
+        description: "Commit the latest unsigned IPA to artifacts/ on the selected branch"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ios-build-${{ github.workflow }}-${{ github.ref }}
@@ -88,6 +93,25 @@ jobs:
           unzip -l "$ARTIFACT_DIR/KumoneIOS-iOS15-unsigned.ipa" | grep -q 'Payload/KumoneIOS.app/Info.plist'
           cp "$RUNNER_TEMP/xcodebuild.log" "$ARTIFACT_DIR/xcodebuild.log"
           echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Commit latest unsigned IPA to repository branch
+        if: github.event_name == 'workflow_dispatch' && inputs.commit_ipa_to_repository
+        env:
+          ARTIFACT_DIR: ${{ steps.package.outputs.artifact_dir }}
+        run: |
+          set -euo pipefail
+          DESTINATION="artifacts/KumoneIOS-iOS15-latest.ipa"
+          mkdir -p "$(dirname "$DESTINATION")"
+          cp "$ARTIFACT_DIR/KumoneIOS-iOS15-unsigned.ipa" "$DESTINATION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "$DESTINATION"
+          if git diff --cached --quiet; then
+            echo "IPA content is unchanged; no repository commit is needed."
+          else
+            git commit -m "build(ios15): update latest unsigned IPA [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Upload unsigned IPA and build log
         uses: actions/upload-artifact@v4
