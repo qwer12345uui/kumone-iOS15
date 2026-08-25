@@ -369,6 +369,13 @@ private struct IOS15SearchTab: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                Text("搜索")
+                    .font(.system(size: 38, weight: .bold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, 26)
+                    .padding(.bottom, 14)
+
                 HStack(spacing: 10) {
                     TextField("搜索歌曲、歌手", text: $keywords, onCommit: search)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -408,7 +415,7 @@ private struct IOS15SearchTab: View {
                     .listStyle(PlainListStyle())
                 }
             }
-            .navigationBarTitle("搜索", displayMode: .large)
+            .navigationBarHidden(true)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 IOS15MiniPlayer(store: store)
             }
