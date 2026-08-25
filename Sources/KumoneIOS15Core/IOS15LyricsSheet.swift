@@ -105,6 +105,15 @@ struct IOS15LyricsSheet: View {
             }
             .navigationBarTitle(track.name, displayMode: .inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: store.toggleShuffleOrRepeatOne) {
+                        Image(systemName: store.playbackMode == .repeatOne ? "repeat.1" : "shuffle")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("播放模式：\(store.playbackMode.title)")
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
                         presentationMode.wrappedValue.dismiss()
