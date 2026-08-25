@@ -8,6 +8,7 @@ struct IOS15LyricsSheet: View {
 
     @State private var originalLines: [TimedLyricLine] = []
     @State private var translatedByTimestamp: [Int: String] = [:]
+    @State private var romajiByTimestamp: [Int: String] = [:]
     @State private var showQueue = false
     @State private var isLoading = true
     @State private var message: String?
@@ -171,6 +172,13 @@ struct IOS15LyricsSheet: View {
     @ViewBuilder
     private func lyricRow(_ line: TimedLyricLine, isActive: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let romaji = romajiByTimestamp[line.timestampKey], !romaji.isEmpty {
+                Text(romaji)
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(isActive ? .primary.opacity(0.72) : .secondary.opacity(0.78))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Text(line.text)
                 .font(isActive ? .title2.weight(.bold) : .title3.weight(.medium))
                 .foregroundColor(isActive ? .primary : .secondary)
@@ -220,6 +228,21 @@ struct IOS15LyricsSheet: View {
                 translations[line.timestampKey] = line.text
             }
             translatedByTimestamp = translations
+
+            var romaji: [Int: String] = [:]
+            for line in Self.lines(from: response.romalrc?.lyric) {
+                romaji[line.timestampKey] = line.text
+            }
+            if IOS15RomajiTranscriber.isJapanese(originals.map(\.text)) {
+                for line in originals where romaji[line.timestampKey] == nil {
+                    if let generated = IOS15RomajiTranscriber.transcribe(line.text) {
+                        romaji[line.timestampKey] = generated
+                    }
+                }
+            } else {
+                romaji = [:]
+            }
+            romajiByTimestamp = romaji
         } catch {
             message = "歌词加载失败，请稍后重试"
         }
