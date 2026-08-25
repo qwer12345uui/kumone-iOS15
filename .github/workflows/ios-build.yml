@@ -151,7 +151,6 @@ jobs:
           xcodebuild test \
             -workspace ios/KumoneIOS.xcworkspace \
             -scheme KumoneIOS \
-            -testPlan KumoneIOS \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
             -derivedDataPath "$RUNNER_TEMP/ios15-test/DerivedData" \
             -resultBundlePath "$RUNNER_TEMP/ios15-test/KumoneIOS-iOS15.xcresult" \
