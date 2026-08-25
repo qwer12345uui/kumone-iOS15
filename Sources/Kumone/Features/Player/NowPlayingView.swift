@@ -3,9 +3,10 @@ import SwiftUI
 /// Immersive full-window now-playing page: artwork-tinted gradient backdrop,
 /// large artwork on the left, big synced lyrics on the right.
 struct NowPlayingView: View {
-    @Environment(PlayerService.self) private var player
-    @Environment(AccountStore.self) private var account
-    @Environment(SettingsManager.self) private var settings
+    @EnvironmentObject private var player: PlayerService
+    @ObservedObject private var clock = PlayerService.shared.clock
+    @EnvironmentObject private var account: AccountStore
+    @EnvironmentObject private var settings: SettingsManager
 
     @State private var artworkImage: PlatformImage?
     @State private var colors: ArtworkColors = .fallback
@@ -26,6 +27,9 @@ struct NowPlayingView: View {
                     regularLayout(size: geo.size)
                 }
             }
+            // Pin to the screen width so an intrinsically-wide child can never
+            // stretch the ZStack and push the corner overlays off-screen.
+            .frame(width: geo.size.width)
             .overlay(alignment: .topLeading) {
                 Button {
                     close()
@@ -225,7 +229,12 @@ struct NowPlayingView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 22) {
+        // Equal-width slots so the row always fits the screen: fixed-size
+        // buttons in a plain HStack summed wider than a phone (≈430pt with the
+        // like button), overflowing the layout and shoving the overlays and
+        // metadata off the right edge. `maxWidth: .infinity` per control makes
+        // the row scale to any width instead.
+        HStack(spacing: 0) {
             if let track = player.currentTrack {
                 let liked = account.isLiked(track.id)
                 circleButton(
@@ -234,57 +243,74 @@ struct NowPlayingView: View {
                 ) {
                     Task { await account.toggleLike(trackID: track.id) }
                 }
+                .frame(maxWidth: .infinity)
             }
 
             if player.isFMMode {
                 circleButton(icon: "trash", size: 14) {
                     player.fmTrash()
                 }
+                .frame(maxWidth: .infinity)
             } else {
+                circleButton(
+                    icon: "shuffle", size: 14,
+                    tint: player.shuffleEnabled ? Theme.accent : nil
+                ) {
+                    player.toggleShuffle()
+                }
+                .frame(maxWidth: .infinity)
                 circleButton(icon: "backward.fill", size: 16) {
                     player.previous()
                 }
+                .frame(maxWidth: .infinity)
             }
 
-            Button {
-                player.togglePlayPause()
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 58, height: 58)
-                        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 21, weight: .bold))
-                        .foregroundStyle(.black.opacity(0.85))
-                        .contentTransition(.symbolEffect(.replace))
-                }
-            }
-            .buttonStyle(.pressable)
+            playPauseButton
+                .frame(maxWidth: .infinity)
 
             circleButton(icon: "forward.fill", size: 16) {
                 player.next()
             }
+            .frame(maxWidth: .infinity)
+
+            RoutePickerButton(diameter: 40, glyphSize: 15)
+                .frame(maxWidth: .infinity)
 
             if player.isFMMode {
                 Image(systemName: "wave.3.right.circle.fill")
                     .font(.system(size: 15))
                     .foregroundStyle(.white.opacity(0.5))
                     .frame(width: 40, height: 40)
+                    .frame(maxWidth: .infinity)
             } else {
                 circleButton(
-                    icon: player.shuffleEnabled ? "shuffle" : (player.repeatMode == .one ? "repeat.1" : "repeat"),
+                    icon: player.repeatMode == .one ? "repeat.1" : "repeat",
                     size: 14,
-                    tint: player.shuffleEnabled || player.repeatMode != .off ? Theme.accent : nil
+                    tint: player.repeatMode != .off ? Theme.accent : nil
                 ) {
-                    if player.shuffleEnabled {
-                        player.toggleShuffle()
-                    } else {
-                        player.cycleRepeatMode()
-                    }
+                    player.cycleRepeatMode()
                 }
+                .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    private var playPauseButton: some View {
+        Button {
+            player.togglePlayPause()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 58, height: 58)
+                    .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(.black.opacity(0.85))
+                    .contentTransition(.opacity)
+            }
+        }
+        .buttonStyle(.pressable)
     }
 
     private func circleButton(icon: String, size: CGFloat,
@@ -327,8 +353,8 @@ struct NowPlayingView: View {
                         startPoint: .top, endPoint: .bottom
                     )
                 )
-                .onChange(of: player.progress) {
-                    let index = lyrics.activeIndex(at: player.progress + 0.2)
+                .onChange(of: clock.progress) { _ in
+                    let index = lyrics.activeIndex(at: clock.progress + 0.2)
                     guard index != activeIndex else { return }
                     activeIndex = index
                     guard !isUserScrolling, let index else { return }
@@ -336,7 +362,7 @@ struct NowPlayingView: View {
                         proxy.scrollTo(index, anchor: .center)
                     }
                 }
-                .onChange(of: player.currentTrack?.id) {
+                .onChange(of: player.currentTrack?.id) { _ in
                     activeIndex = nil
                 }
                 .simultaneousGesture(
@@ -397,7 +423,8 @@ struct NowPlayingView: View {
 // MARK: - Scrubber (white-on-dark variant)
 
 struct NowPlayingScrubber: View {
-    @Environment(PlayerService.self) private var player
+    @EnvironmentObject private var player: PlayerService
+    @ObservedObject private var clock = PlayerService.shared.clock
 
     @State private var isHovering = false
     @State private var isDragging = false
@@ -405,7 +432,7 @@ struct NowPlayingScrubber: View {
 
     private var fraction: Double {
         guard player.duration > 0 else { return 0 }
-        let value = isDragging ? dragProgress : player.progress
+        let value = isDragging ? dragProgress : clock.progress
         return min(max(value / player.duration, 0), 1)
     }
 
@@ -450,7 +477,7 @@ struct NowPlayingScrubber: View {
             }
 
             HStack {
-                Text(Formatters.duration(isDragging ? dragProgress : player.progress))
+                Text(Formatters.duration(isDragging ? dragProgress : clock.progress))
                 Spacer()
                 Text(Formatters.duration(player.duration))
             }
@@ -472,11 +499,12 @@ struct NowPlayingScrubber: View {
 struct MiniLyricsView: View {
     let onOpen: () -> Void
 
-    @Environment(PlayerService.self) private var player
+    @EnvironmentObject private var player: PlayerService
+    @ObservedObject private var clock = PlayerService.shared.clock
 
     private var lines: (previous: LyricLine?, current: LyricLine?, next: LyricLine?) {
         guard let lyrics = player.lyrics, !lyrics.isEmpty else { return (nil, nil, nil) }
-        guard let index = lyrics.activeIndex(at: player.progress + 0.2) else {
+        guard let index = lyrics.activeIndex(at: clock.progress + 0.2) else {
             return (nil, nil, lyrics.lines.first)
         }
         let all = lyrics.lines

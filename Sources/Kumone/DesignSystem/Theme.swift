@@ -54,6 +54,12 @@ enum AppAnimation {
 }
 
 extension View {
+    /// `scrollClipDisabled` is iOS 17 / macOS 14; older systems clip normally.
+    @ViewBuilder
+    func compatScrollClipDisabled() -> some View {
+        if #available(iOS 17.0, macOS 14.0, *) { scrollClipDisabled() } else { self }
+    }
+
     /// Hides the toolbar background; `toolbarBackgroundVisibility` is
     /// macOS 15+/iOS 18+, so iOS 17 falls back to `toolbarBackground`.
     @ViewBuilder

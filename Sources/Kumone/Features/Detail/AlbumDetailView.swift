@@ -11,8 +11,8 @@ struct AlbumDetailView: View {
     @State private var errorMessage: String?
     @State private var showFullDescription = false
 
-    @Environment(PlayerService.self) private var player
-    @Environment(AccountStore.self) private var account
+    @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var account: AccountStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var isCompact: Bool {

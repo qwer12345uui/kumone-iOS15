@@ -73,16 +73,27 @@ built-in Sparkle automatic updates (menu bar: Kumone → Check for Updates…).
 
 ### iOS / iPadOS (sideload)
 
-Every release ships an **unsigned** `Kumone-iOS-x.y.z.ipa` (iOS 17+). Kumone
+Every release ships an **unsigned** `Kumone-iOS-x.y.z.ipa` (iOS 16+). Kumone
 is an unofficial client and will not be on the App Store or TestFlight, so
 install it with a sideloading tool that signs the IPA with your own Apple ID —
 [AltStore](https://altstore.io), [SideStore](https://sidestore.io),
-[Sideloadly](https://sideloadly.io) or Xcode all work.
+[Sideloadly](https://sideloadly.io) or Xcode all work. On iOS 26+ the tab bar is the system’s native Liquid Glass; on iOS 16–25 it falls back to a simulated glass bar.
 
 Updating: iOS apps can't replace themselves. Settings → About → **Check for
 Updates** tells you when a newer release exists and links to it; download the
 new IPA and reinstall with the same tool — sign-in state and settings are kept.
 AltStore / SideStore can also track the release automatically via a source.
+
+#### In-app auto-update (TrollStore only)
+
+On a device with **[TrollStore](https://github.com/opa334/TrollStore)** (巨魔),
+Kumone updates itself: Settings → About → **Check for Updates** (it also checks
+on launch) downloads the new IPA with a progress ring and hands it to TrollStore
+via `apple-magnifier://install?url=…` for a one-tap, fully automatic install —
+the same mechanism Dopamine uses. This works **only under TrollStore**: a plain
+AltStore/SideStore sideload is signed with a personal certificate and has no way
+to install an IPA on-device, so there it degrades to opening the release page
+for a manual re-sideload.
 
 ## Building
 
@@ -110,6 +121,10 @@ Sources/Kumone/
 No third-party API server involved: weapi (double AES-CBC + RSA) and eapi
 (AES-ECB + MD5 digest) encryption are implemented natively in Swift, and
 requests go straight to `music.163.com` / `interface.music.163.com`.
+
+## Related projects
+
+Want a **tvOS** build? Check out [Sonimbus](https://github.com/gee1k/sonimbus), a NetEase Cloud Music client for Apple TV maintained by my friend Svend.
 
 ## Credits
 

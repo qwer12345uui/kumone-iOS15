@@ -23,8 +23,8 @@ struct TrackRow: View {
     var onRemoved: (() -> Void)?
     let onPlay: () -> Void
 
-    @Environment(PlayerService.self) private var player
-    @Environment(AccountStore.self) private var account
+    @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var account: AccountStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isHovering = false
     @State private var showAddToPlaylist = false
@@ -249,8 +249,8 @@ struct TrackListView: View {
     var removableFromPlaylistID: Int?
     var onRemoved: ((Track) -> Void)?
 
-    @Environment(PlayerService.self) private var player
-    @Environment(AccountStore.self) private var account
+    @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var account: AccountStore
 
     var body: some View {
         LazyVStack(spacing: 1) {
@@ -289,7 +289,7 @@ struct TrackListView: View {
 struct AddToPlaylistSheet: View {
     let track: Track
 
-    @Environment(AccountStore.self) private var account
+    @EnvironmentObject private var account: AccountStore
     @Environment(\.dismiss) private var dismiss
     @State private var newName = ""
     @State private var creating = false

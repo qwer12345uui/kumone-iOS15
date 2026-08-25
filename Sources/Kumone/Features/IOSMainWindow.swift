@@ -2,10 +2,11 @@ import SwiftUI
 
 #if os(iOS)
 public struct IOSMainWindow: View {
-    @State private var player = PlayerService.shared
-    @State private var account = AccountStore.shared
-    @State private var settings = SettingsManager.shared
-    @State private var toasts = ToastCenter.shared
+    @StateObject private var player = PlayerService.shared
+    @StateObject private var account = AccountStore.shared
+    @StateObject private var settings = SettingsManager.shared
+    @StateObject private var toasts = ToastCenter.shared
+    @StateObject private var updater = IOSUpdater.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var selectedTab: IOSTab = .home
@@ -18,6 +19,22 @@ public struct IOSMainWindow: View {
 
     public init() {}
 
+    /// iOS 26+ renders its own Liquid Glass tab bar — use it. Older systems
+    /// get our simulated-glass custom bar instead.
+    private var usesNativeTabBar: Bool {
+        if #available(iOS 26.0, *) { true } else { false }
+    }
+
+    private func popToRoot(_ tab: IOSTab) {
+        switch tab {
+        case .home: homePath = NavigationPath()
+        case .explore: explorePath = NavigationPath()
+        case .fm: fmPath = NavigationPath()
+        case .search: searchPath = NavigationPath()
+        case .library: libraryPath = NavigationPath()
+        }
+    }
+
     public var body: some View {
         Group {
             if UIDevice.current.userInterfaceIdiom == .pad {
@@ -28,26 +45,31 @@ public struct IOSMainWindow: View {
                 tabInterface
             }
         }
-        .environment(player)
-        .environment(account)
-        .environment(settings)
-        .environment(toasts)
+        .environmentObject(player)
+        .environmentObject(account)
+        .environmentObject(settings)
+        .environmentObject(toasts)
         .tint(Theme.accent)
         .preferredColorScheme(settings.appearance.colorScheme)
         .environment(\.openLogin, { showLogin = true })
         .task {
             await account.bootstrap()
+            // Quiet auto-check on launch: only surfaces a sheet if newer.
+            IOSUpdater.shared.check(interactive: false)
+        }
+        .sheet(isPresented: $updater.showSheet) {
+            IOSUpdaterSheet()
         }
         .sheet(isPresented: $showLogin) {
             LoginSheet()
-                .environment(account)
-                .environment(toasts)
+                .environmentObject(account)
+                .environmentObject(toasts)
         }
-        .fullScreenCover(isPresented: Bindable(player).showNowPlaying) {
+        .fullScreenCover(isPresented: $player.showNowPlaying) {
             NowPlayingView()
-                .environment(player)
-                .environment(account)
-                .environment(settings)
+                .environmentObject(player)
+                .environmentObject(account)
+                .environmentObject(settings)
         }
         .overlay(alignment: .top) {
             if let toast = toasts.current {
@@ -59,63 +81,96 @@ public struct IOSMainWindow: View {
         .animation(.spring(duration: 0.3), value: toasts.current)
     }
 
+    @ViewBuilder
     private var tabInterface: some View {
+        if usesNativeTabBar {
+            nativeTabInterface
+        } else {
+            customTabInterface
+        }
+    }
+
+    /// iOS 26+: the system TabView renders the real Liquid Glass bar.
+    private var nativeTabInterface: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                NavigationStack {
-                    HomeView()
-                        .appDestinations()
-                }
-                .tabItem {
-                    Label("推荐", systemImage: "house.fill")
-                }
-                .tag(IOSTab.home)
-
-                NavigationStack {
-                    ExploreView()
-                        .appDestinations()
-                }
-                .tabItem {
-                    Label("精选", systemImage: "square.grid.2x2.fill")
-                }
-                .tag(IOSTab.explore)
-
-                NavigationStack {
-                    FMView()
-                        .appDestinations()
-                }
-                .tabItem {
-                    Label("漫游", systemImage: "wave.3.right.circle.fill")
-                }
-                .tag(IOSTab.fm)
-
-                NavigationStack {
-                    SearchView(query: "")
-                        .appDestinations()
-                }
-                .tabItem {
-                    Label("搜索", systemImage: "magnifyingglass")
-                }
-                .tag(IOSTab.search)
-
-                NavigationStack {
-                    IOSLibraryView(showLogin: $showLogin)
-                        .appDestinations()
-                }
-                .tabItem {
-                    Label("我的", systemImage: "person.crop.circle.fill")
-                }
-                .tag(IOSTab.library)
+                tabStack(.home) { HomeView() }
+                    .tabItem { Label("推荐", systemImage: "house.fill") }
+                    .tag(IOSTab.home)
+                tabStack(.explore) { ExploreView() }
+                    .tabItem { Label("精选", systemImage: "square.grid.2x2.fill") }
+                    .tag(IOSTab.explore)
+                tabStack(.fm) { FMView() }
+                    .tabItem { Label("漫游", systemImage: "wave.3.right.circle.fill") }
+                    .tag(IOSTab.fm)
+                tabStack(.search) { SearchView(query: "") }
+                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                    .tag(IOSTab.search)
+                tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
+                    .tabItem { Label("我的", systemImage: "person.crop.circle.fill") }
+                    .tag(IOSTab.library)
             }
-
             if player.hasCurrentTrack {
                 IOSMiniPlayerBar()
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 54)
+                    .padding(.bottom, 58)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(AppAnimation.standard, value: player.hasCurrentTrack)
+    }
+
+    /// iOS 16–25: a manual container (no system TabView) so there is exactly
+    /// one — our simulated-glass — tab bar. All five stacks stay alive to
+    /// preserve their navigation state; only the selected one is shown.
+    private var customTabInterface: some View {
+        ZStack(alignment: .bottom) {
+            ZStack {
+                page(.home) { tabStack(.home) { HomeView() } }
+                page(.explore) { tabStack(.explore) { ExploreView() } }
+                page(.fm) { tabStack(.fm) { FMView() } }
+                page(.search) { tabStack(.search) { SearchView(query: "") } }
+                page(.library) { tabStack(.library) { IOSLibraryView(showLogin: $showLogin) } }
+            }
+
+            VStack(spacing: 8) {
+                if player.hasCurrentTrack {
+                    IOSMiniPlayerBar()
+                        .padding(.horizontal, 12)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                GlassTabBar(items: Self.tabItems, selection: $selectedTab) { tab in
+                    popToRoot(tab)
+                }
+            }
+            .padding(.bottom, 6)
+        }
+        .animation(AppAnimation.standard, value: player.hasCurrentTrack)
+    }
+
+    @ViewBuilder
+    private func tabStack<Content: View>(_ tab: IOSTab, @ViewBuilder _ content: () -> Content) -> some View {
+        NavigationStack(path: binding(for: tab)) {
+            content().appDestinations()
+        }
+    }
+
+    @ViewBuilder
+    private func page<Content: View>(_ tab: IOSTab, @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .opacity(selectedTab == tab ? 1 : 0)
+            .allowsHitTesting(selectedTab == tab)
+            .zIndex(selectedTab == tab ? 1 : 0)
+    }
+
+    private func binding(for tab: IOSTab) -> Binding<NavigationPath> {
+        switch tab {
+        case .home: return $homePath
+        case .explore: return $explorePath
+        case .fm: return $fmPath
+        case .search: return $searchPath
+        case .library: return $libraryPath
+        }
     }
 }
 
@@ -123,11 +178,22 @@ enum IOSTab: Hashable {
     case home, explore, fm, search, library
 }
 
+extension IOSMainWindow {
+    static let tabItems: [GlassTabBar.Item] = [
+        .init(tab: .home, title: "推荐", icon: "house"),
+        .init(tab: .explore, title: "精选", icon: "square.grid.2x2"),
+        .init(tab: .fm, title: "漫游", icon: "dot.radiowaves.left.and.right"),
+        .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
+        .init(tab: .library, title: "我的", icon: "person.crop.circle"),
+    ]
+}
+
 // MARK: - Mini player bar for iOS
 
 struct IOSMiniPlayerBar: View {
-    @Environment(PlayerService.self) private var player
-    @Environment(AccountStore.self) private var account
+    @EnvironmentObject private var player: PlayerService
+    @StateObject private var updater = IOSUpdater.shared
+    @EnvironmentObject private var account: AccountStore
 
     var body: some View {
         Button {
@@ -191,7 +257,7 @@ struct IOSMiniPlayerBar: View {
 
 struct IOSLibraryView: View {
     @Binding var showLogin: Bool
-    @Environment(AccountStore.self) private var account
+    @EnvironmentObject private var account: AccountStore
     @State private var showSettings = false
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
@@ -255,19 +321,13 @@ struct IOSLibraryView: View {
                     NavigationLink(value: Destination.daily) {
                         Label("每日推荐", systemImage: "calendar")
                     }
-                    NavigationLink {
-                        RecentsView()
-                    } label: {
+                    NavigationLink(value: Destination.recents) {
                         Label("最近播放", systemImage: "clock.fill")
                     }
-                    NavigationLink {
-                        CollectionsView()
-                    } label: {
+                    NavigationLink(value: Destination.collections) {
                         Label("我的收藏", systemImage: "star.fill")
                     }
-                    NavigationLink {
-                        CloudView()
-                    } label: {
+                    NavigationLink(value: Destination.cloud) {
                         Label("音乐云盘", systemImage: "icloud.fill")
                     }
                 }
