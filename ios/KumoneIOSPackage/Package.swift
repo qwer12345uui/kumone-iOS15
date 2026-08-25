@@ -12,7 +12,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../.."),
+        .package(name: "kumone", path: "../.."),
     ],
     targets: [
         .target(
