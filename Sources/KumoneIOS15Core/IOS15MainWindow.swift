@@ -32,19 +32,19 @@ public struct IOS15MainWindow: View {
             IOS15SearchTab(store: store)
                 .tag(IOS15Tab.search)
         }
-        // A safe-area inset places the visual frame above the home indicator
-        // without adding a drag recognizer that could steal page scrolling.
+        // The bar is inserted first; the outer mini-player inset then reserves
+        // the physical bottom edge, so navigation consistently sits above the
+        // player and remains tappable on every tab.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Search owns the lower safe area while its mini player is visible.
-            // Removing the glass bar from that same edge prevents the two controls
-            // from stacking over each other; dismissing the player restores it.
-            if !(selectedTab == .search && store.currentTrack != nil) {
-                IOS15GlassTabBar(selection: $selectedTab)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            IOS15GlassTabBar(selection: $selectedTab)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            IOS15MiniPlayer(store: store)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         .onAppear {
             selectionFeedback.prepare()
@@ -185,11 +185,13 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var currentTrack: Track?
     @Published private(set) var isPlaying = false
     @Published private(set) var isPreparingPlayback = false
+    @Published private(set) var playbackTime: TimeInterval = 0
     @Published private(set) var playHistory: [Track] = []
 
     private let playHistoryKey = "kumone.ios15.play-history.v1"
     private var player: AVPlayer?
     private var playerItemStatusObservation: NSKeyValueObservation?
+    private var timeObserver: Any?
     private var remoteCommandsInstalled = false
 
     init() {
@@ -271,13 +273,34 @@ final class IOS15MusicStore: ObservableObject {
         configurePlaybackSessionIfPossible()
 
         player?.pause()
+        removePlaybackTimeObserver()
         playerItemStatusObservation?.invalidate()
+        playbackTime = 0
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         let player = AVPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = true
         self.player = player
+        installPlaybackTimeObserver(on: player)
         observePlaybackReadiness(item, track: track)
         installRemoteCommandsIfNeeded()
+    }
+
+    private func installPlaybackTimeObserver(on player: AVPlayer) {
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            guard time.seconds.isFinite else { return }
+            Task { @MainActor [weak self] in
+                self?.playbackTime = max(0, time.seconds)
+            }
+        }
+    }
+
+    private func removePlaybackTimeObserver() {
+        guard let observer = timeObserver else { return }
+        player?.removeTimeObserver(observer)
+        timeObserver = nil
     }
 
     private func observePlaybackReadiness(_ item: AVPlayerItem, track: Track) {
@@ -426,12 +449,14 @@ final class IOS15MusicStore: ObservableObject {
 
     func dismissCurrentTrack() {
         player?.pause()
+        removePlaybackTimeObserver()
         playerItemStatusObservation?.invalidate()
         playerItemStatusObservation = nil
         player = nil
         currentTrack = nil
         isPlaying = false
         isPreparingPlayback = false
+        playbackTime = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -612,10 +637,6 @@ private struct IOS15SearchTab: View {
             // The content title is intentional: the system navigation bar stays
             // hidden so it never reserves vertical space above search results.
             .navigationBarHidden(true)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                IOS15MiniPlayer(store: store)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
             .animation(.spring(response: 0.28, dampingFraction: 0.9), value: store.currentTrack?.id)
         }
         .navigationViewStyle(StackNavigationViewStyle())
@@ -652,9 +673,6 @@ private struct IOS15PlaylistDetail: View {
             }
         }
         .navigationBarTitle(playlist.name, displayMode: .inline)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            IOS15MiniPlayer(store: store)
-        }
         .task {
             await store.loadPlaylist(playlist)
         }
@@ -774,7 +792,7 @@ private struct IOS15MiniPlayer: View {
             .background(.thinMaterial)
             .overlay(Divider(), alignment: .top)
             .sheet(item: $lyricsTrack) { track in
-                IOS15LyricsSheet(track: track)
+                IOS15LyricsSheet(track: track, store: store)
             }
         }
     }
