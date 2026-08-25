@@ -76,6 +76,12 @@ struct IOS15LyricsSheet: View {
             }
             .navigationBarTitle(track.name, displayMode: .inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: store.cyclePlaybackMode) {
+                        Image(systemName: store.playbackMode.symbolName)
+                    }
+                    .accessibilityLabel("播放模式：\(store.playbackMode.title)")
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
                         presentationMode.wrappedValue.dismiss()

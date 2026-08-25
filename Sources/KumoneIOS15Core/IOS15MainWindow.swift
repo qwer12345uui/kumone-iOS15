@@ -173,6 +173,36 @@ private struct IOS15GlassTabBar: View {
     }
 }
 
+enum IOS15PlaybackMode: String, CaseIterable {
+    case sequential
+    case shuffle
+    case repeatOne
+
+    var symbolName: String {
+        switch self {
+        case .sequential: return "text.line.first.and.arrowtriangle.forward"
+        case .shuffle: return "shuffle"
+        case .repeatOne: return "repeat.1"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .sequential: return "顺序播放"
+        case .shuffle: return "随机播放"
+        case .repeatOne: return "单曲循环"
+        }
+    }
+
+    var next: IOS15PlaybackMode {
+        switch self {
+        case .sequential: return .shuffle
+        case .shuffle: return .repeatOne
+        case .repeatOne: return .sequential
+        }
+    }
+}
+
 @MainActor
 final class IOS15MusicStore: ObservableObject {
     @Published private(set) var recommendations: [PlaylistSummary] = []
@@ -186,16 +216,21 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var isPreparingPlayback = false
     @Published private(set) var playbackTime: TimeInterval = 0
+    @Published private(set) var playbackMode: IOS15PlaybackMode = .sequential
     @Published private(set) var playHistory: [Track] = []
 
     private let playHistoryKey = "kumone.ios15.play-history.v1"
+    private let playbackModeKey = "kumone.ios15.playback-mode.v1"
+    private var playQueue: [Track] = []
     private var player: AVPlayer?
     private var playerItemStatusObservation: NSKeyValueObservation?
+    private var itemEndObserver: NSObjectProtocol?
     private var timeObserver: Any?
     private var remoteCommandsInstalled = false
 
     init() {
         loadPlayHistory()
+        loadPlaybackMode()
     }
 
     func loadRecommendations(force: Bool = false) async {
@@ -247,6 +282,11 @@ final class IOS15MusicStore: ObservableObject {
     }
 
     func play(_ track: Track) async {
+        setPlayQueue(from: tracks, selecting: track)
+        await startPlayback(track)
+    }
+
+    private func startPlayback(_ track: Track) async {
         currentTrack = track
         errorMessage = nil
         isPlaying = false
@@ -281,6 +321,7 @@ final class IOS15MusicStore: ObservableObject {
         player.automaticallyWaitsToMinimizeStalling = true
         self.player = player
         installPlaybackTimeObserver(on: player)
+        installItemEndObserver(for: item)
         observePlaybackReadiness(item, track: track)
         installRemoteCommandsIfNeeded()
     }
@@ -301,6 +342,21 @@ final class IOS15MusicStore: ObservableObject {
         guard let observer = timeObserver else { return }
         player?.removeTimeObserver(observer)
         timeObserver = nil
+    }
+
+    private func installItemEndObserver(for item: AVPlayerItem) {
+        if let observer = itemEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        itemEndObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handlePlaybackFinished()
+            }
+        }
     }
 
     private func observePlaybackReadiness(_ item: AVPlayerItem, track: Track) {
@@ -343,6 +399,52 @@ final class IOS15MusicStore: ObservableObject {
 
     func dismissError() {
         errorMessage = nil
+    }
+
+    private func setPlayQueue(from source: [Track], selecting track: Track) {
+        var seen = Set<Int>()
+        let normalized = source.filter { seen.insert($0.id).inserted }
+        playQueue = normalized.contains(where: { $0.id == track.id }) ? normalized : [track]
+    }
+
+    private func handlePlaybackFinished() {
+        guard let currentTrack else { return }
+        switch playbackMode {
+        case .repeatOne:
+            playbackTime = 0
+            player?.seek(to: .zero)
+            player?.play()
+            isPlaying = true
+            refreshNowPlayingPlaybackState()
+        case .sequential:
+            guard let index = playQueue.firstIndex(where: { $0.id == currentTrack.id }),
+                  index + 1 < playQueue.count else {
+                isPlaying = false
+                refreshNowPlayingPlaybackState()
+                return
+            }
+            Task { await startPlayback(playQueue[index + 1]) }
+        case .shuffle:
+            guard !playQueue.isEmpty else {
+                isPlaying = false
+                refreshNowPlayingPlaybackState()
+                return
+            }
+            let alternatives = playQueue.filter { $0.id != currentTrack.id }
+            let next = alternatives.randomElement() ?? currentTrack
+            Task { await startPlayback(next) }
+        }
+    }
+
+    func cyclePlaybackMode() {
+        playbackMode = playbackMode.next
+        UserDefaults.standard.set(playbackMode.rawValue, forKey: playbackModeKey)
+    }
+
+    private func loadPlaybackMode() {
+        guard let rawValue = UserDefaults.standard.string(forKey: playbackModeKey),
+              let mode = IOS15PlaybackMode(rawValue: rawValue) else { return }
+        playbackMode = mode
     }
 
     func clearPlayHistory() {
@@ -452,6 +554,10 @@ final class IOS15MusicStore: ObservableObject {
         removePlaybackTimeObserver()
         playerItemStatusObservation?.invalidate()
         playerItemStatusObservation = nil
+        if let observer = itemEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        itemEndObserver = nil
         player = nil
         currentTrack = nil
         isPlaying = false
@@ -765,6 +871,14 @@ private struct IOS15MiniPlayer: View {
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel("显示歌词")
                 Spacer(minLength: 0)
+                Button(action: store.cyclePlaybackMode) {
+                    Image(systemName: store.playbackMode.symbolName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 30, height: 34)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("播放模式：\(store.playbackMode.title)")
+
                 if store.isPreparingPlayback {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle())
