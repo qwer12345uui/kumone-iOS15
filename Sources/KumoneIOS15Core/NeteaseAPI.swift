@@ -53,7 +53,10 @@ enum NeteaseAPI {
 
     /// Sends an SMS verification code for phone-number login.
     static func sendSMSCode(phone: String, countryCode: String = "86") async throws {
-        let data = try await client.weapi("/sms/sendcode", ["cellphone": phone, "ctcode": countryCode],
+        // The public proxy route is `/captcha/sent`; NetEase's direct weapi route
+        // is `/sms/captcha/sent`. The previous `/sms/sendcode` path returns 404
+        // ("接口不存在") from the music service.
+        let data = try await client.weapi("/sms/captcha/sent", ["cellphone": phone, "ctcode": countryCode],
                                           cookieOverrides: ["os": "ios", "appver": "8.20.21"])
         _ = try client.decoded(CodeOnly.self, from: data)
     }

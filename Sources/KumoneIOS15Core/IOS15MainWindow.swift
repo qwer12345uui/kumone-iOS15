@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import MediaPlayer
 import SwiftUI
 import UIKit
 
@@ -9,43 +10,42 @@ import UIKit
 @MainActor
 public struct IOS15MainWindow: View {
     @StateObject private var store = IOS15MusicStore()
+    @StateObject private var account = IOS15AccountStore()
     @State private var selectedTab = IOS15Tab.home
     @State private var selectionFeedback = UISelectionFeedbackGenerator()
 
     public init() {
-        // Keep TabView's content switching and accessibility semantics while the
-        // floating glass frame supplies the visible three-tab navigation.
+        // The standard tab bar is replaced by an accessible SwiftUI bar below.
+        // Hiding it at appearance time retains TabView's content switching while
+        // avoiding a second navigation layer behind the floating glass container.
         UITabBar.appearance().isHidden = true
     }
 
     public var body: some View {
         TabView(selection: $selectedTab) {
-            IOS15HomeTab(store: store)
-                .tabItem {
-                    Label("推荐", systemImage: "house.fill")
-                }
+            IOS15HomeTab(store: store, account: account)
                 .tag(IOS15Tab.home)
 
-            IOS15DiscoverTab(store: store)
-                .tabItem {
-                    Label("精选", systemImage: "square.grid.2x2.fill")
-                }
-                .tag(IOS15Tab.discover)
+            IOS15ProfileTab(store: store, account: account)
+                .tag(IOS15Tab.profile)
 
             IOS15SearchTab(store: store)
-                .tabItem {
-                    Label("搜索", systemImage: "magnifyingglass")
-                }
                 .tag(IOS15Tab.search)
         }
+        // A safe-area inset places the visual frame above the home indicator
+        // without adding a drag recognizer that could steal page scrolling.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            IOS15GlassTabBar(selection: $selectedTab)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
+            // Search owns the lower safe area while its mini player is visible.
+            // Removing the glass bar from that same edge prevents the two controls
+            // from stacking over each other; dismissing the player restores it.
+            if !(selectedTab == .search && store.currentTrack != nil) {
+                IOS15GlassTabBar(selection: $selectedTab)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
-        // No custom drag gesture is installed, so page and list scrolling remain
-        // owned by the original upstream content.
         .onAppear {
             selectionFeedback.prepare()
         }
@@ -57,19 +57,23 @@ public struct IOS15MainWindow: View {
             .spring(response: 0.28, dampingFraction: 0.86, blendDuration: 0),
             value: selectedTab
         )
+        .animation(
+            .spring(response: 0.28, dampingFraction: 0.9, blendDuration: 0),
+            value: store.currentTrack?.id
+        )
         .tint(Color(red: 0.78, green: 0.12, blue: 0.18))
     }
 }
 
 private enum IOS15Tab: CaseIterable, Hashable {
     case home
-    case discover
+    case profile
     case search
 
     var title: String {
         switch self {
-        case .home: return "推荐"
-        case .discover: return "精选"
+        case .home: return "首页"
+        case .profile: return "我的"
         case .search: return "搜索"
         }
     }
@@ -77,7 +81,7 @@ private enum IOS15Tab: CaseIterable, Hashable {
     var symbolName: String {
         switch self {
         case .home: return "house.fill"
-        case .discover: return "square.grid.2x2.fill"
+        case .profile: return "person.crop.circle.fill"
         case .search: return "magnifyingglass"
         }
     }
@@ -88,6 +92,11 @@ private struct IOS15GlassTabBar: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        glassContainer
+            .accessibilityElement(children: .contain)
+    }
+
+    private var glassContainer: some View {
         Group {
             if #available(iOS 26.0, *) {
                 tabItems
@@ -96,14 +105,9 @@ private struct IOS15GlassTabBar: View {
                 tabItems
                     .background(.ultraThinMaterial, in: Capsule())
                     .overlay(Capsule().strokeBorder(fallbackBorderColor, lineWidth: 1))
-                    .shadow(
-                        color: Color.black.opacity(colorScheme == .dark ? 0.32 : 0.14),
-                        radius: 18,
-                        y: 8
-                    )
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.32 : 0.14), radius: 18, y: 8)
             }
         }
-        .accessibilityElement(children: .contain)
     }
 
     private var tabItems: some View {
@@ -138,15 +142,21 @@ private struct IOS15GlassTabBar: View {
     }
 
     private var selectedFill: Color {
-        colorScheme == .dark ? Color.pink.opacity(0.34) : Color.pink.opacity(0.18)
+        colorScheme == .dark
+            ? Color.pink.opacity(0.34)
+            : Color.pink.opacity(0.18)
     }
 
     private var inactiveForeground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.88)
+        colorScheme == .dark
+            ? Color.white.opacity(0.92)
+            : Color.black.opacity(0.88)
     }
 
     private var fallbackBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.16) : Color.white.opacity(0.72)
+        colorScheme == .dark
+            ? Color.white.opacity(0.16)
+            : Color.white.opacity(0.72)
     }
 }
 
@@ -161,8 +171,15 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var currentTrack: Track?
     @Published private(set) var isPlaying = false
+    @Published private(set) var playHistory: [Track] = []
 
+    private let playHistoryKey = "kumone.ios15.play-history.v1"
     private var player: AVPlayer?
+    private var remoteCommandsInstalled = false
+
+    init() {
+        loadPlayHistory()
+    }
 
     func loadRecommendations(force: Bool = false) async {
         guard force || recommendations.isEmpty, !isLoadingRecommendations else { return }
@@ -206,7 +223,7 @@ final class IOS15MusicStore: ObservableObject {
         isSearching = true
         defer { isSearching = false }
         do {
-            tracks = try await NeteaseAPI.search(term, type: .songs, limit: 50).songs ?? []
+            tracks = (try await NeteaseAPI.search(term, type: .songs, limit: 50)).songs ?? []
         } catch {
             errorMessage = "未能完成搜索，请检查网络后重试。"
         }
@@ -223,29 +240,139 @@ final class IOS15MusicStore: ObservableObject {
                 isPlaying = false
                 return
             }
+            try configurePlaybackSession()
             let player = AVPlayer(url: url)
             self.player = player
+            installRemoteCommandsIfNeeded()
             player.play()
             isPlaying = true
+            recordPlayback(of: track)
+            publishNowPlayingInfo(for: track)
         } catch {
             errorMessage = "播放地址获取失败，请稍后重试。"
             isPlaying = false
         }
     }
 
-    func togglePlayback() {
-        guard let player else { return }
-        if isPlaying {
-            player.pause()
-        } else {
-            player.play()
+    func clearPlayHistory() {
+        playHistory = []
+        UserDefaults.standard.removeObject(forKey: playHistoryKey)
+    }
+
+    private func loadPlayHistory() {
+        guard let data = UserDefaults.standard.data(forKey: playHistoryKey),
+              let tracks = try? JSONDecoder().decode([Track].self, from: data)
+        else { return }
+        playHistory = tracks
+    }
+
+    private func recordPlayback(of track: Track) {
+        playHistory.removeAll { $0.id == track.id }
+        playHistory.insert(track, at: 0)
+        if playHistory.count > 100 {
+            playHistory.removeLast(playHistory.count - 100)
         }
-        isPlaying.toggle()
+        if let data = try? JSONEncoder().encode(playHistory) {
+            UserDefaults.standard.set(data, forKey: playHistoryKey)
+        }
+    }
+
+    /// Selects a long-form audio session before AVPlayer starts. Combined with the
+    /// `audio` background mode in Info.plist, this keeps user-initiated playback
+    /// alive while the app is backgrounded or the device is locked.
+    private func configurePlaybackSession() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(
+            .playback,
+            mode: .default,
+            policy: .longFormAudio,
+            options: [.allowAirPlay, .allowBluetoothA2DP]
+        )
+        try session.setActive(true)
+    }
+
+    private func installRemoteCommandsIfNeeded() {
+        guard !remoteCommandsInstalled else { return }
+        remoteCommandsInstalled = true
+
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.resumePlayback() }
+            return .success
+        }
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.pausePlayback() }
+            return .success
+        }
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.togglePlayback() }
+            return .success
+        }
+    }
+
+    private func resumePlayback() {
+        guard let player else { return }
+        player.play()
+        isPlaying = true
+        refreshNowPlayingPlaybackState()
+    }
+
+    private func pausePlayback() {
+        guard let player else { return }
+        player.pause()
+        isPlaying = false
+        refreshNowPlayingPlaybackState()
+    }
+
+    private func publishNowPlayingInfo(for track: Track) {
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.name,
+            MPMediaItemPropertyArtist: track.artistNames,
+            MPMediaItemPropertyAlbumTitle: track.album.name,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+        ]
+        let seconds = player?.currentTime().seconds ?? 0
+        if seconds.isFinite { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = seconds }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func refreshNowPlayingPlaybackState() {
+        guard let track = currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        publishNowPlayingInfo(for: track)
+    }
+
+    func togglePlayback() {
+        if isPlaying {
+            pausePlayback()
+        } else {
+            resumePlayback()
+        }
+    }
+
+    func dismissCurrentTrack() {
+        player?.pause()
+        player = nil
+        currentTrack = nil
+        isPlaying = false
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 
 private struct IOS15HomeTab: View {
     @ObservedObject var store: IOS15MusicStore
+    @ObservedObject var account: IOS15AccountStore
+    @State private var showSettings = false
 
     var body: some View {
         NavigationView {
@@ -259,6 +386,14 @@ private struct IOS15HomeTab: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("设置")
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
                         Task { await store.loadRecommendations(force: true) }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -268,6 +403,9 @@ private struct IOS15HomeTab: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .sheet(isPresented: $showSettings) {
+            IOS15SettingsView(account: account)
+        }
         .task {
             await store.loadRecommendations()
         }
@@ -357,6 +495,13 @@ private struct IOS15SearchTab: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                Text("搜索")
+                    .font(.system(size: 38, weight: .bold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, 26)
+                    .padding(.bottom, 14)
+
                 HStack(spacing: 10) {
                     TextField("搜索歌曲、歌手", text: $keywords, onCommit: search)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -396,10 +541,14 @@ private struct IOS15SearchTab: View {
                     .listStyle(PlainListStyle())
                 }
             }
-            .navigationBarTitle("搜索", displayMode: .large)
+            // The content title is intentional: the system navigation bar stays
+            // hidden so it never reserves vertical space above search results.
+            .navigationBarHidden(true)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 IOS15MiniPlayer(store: store)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            .animation(.spring(response: 0.28, dampingFraction: 0.9), value: store.currentTrack?.id)
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
@@ -471,7 +620,7 @@ private struct IOS15PlaylistRow: View {
     }
 }
 
-private struct IOS15TrackRow: View {
+struct IOS15TrackRow: View {
     let track: Track
     let isCurrent: Bool
 
@@ -499,27 +648,36 @@ private struct IOS15TrackRow: View {
 
 private struct IOS15MiniPlayer: View {
     @ObservedObject var store: IOS15MusicStore
+    @State private var lyricsTrack: Track?
 
     var body: some View {
         if let track = store.currentTrack {
             HStack(spacing: 12) {
-                AsyncImage(url: track.album.picUrl?.resizedImageURL(96)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.secondary.opacity(0.16)
-                }
-                .frame(width: 38, height: 38)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Button {
+                    lyricsTrack = track
+                } label: {
+                    HStack(spacing: 12) {
+                        AsyncImage(url: track.album.picUrl?.resizedImageURL(96)) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Color.secondary.opacity(0.16)
+                        }
+                        .frame(width: 38, height: 38)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(track.artistNames)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(track.name)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(track.artistNames)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("显示歌词")
                 Spacer(minLength: 0)
                 Button(action: store.togglePlayback) {
                     Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
@@ -527,11 +685,22 @@ private struct IOS15MiniPlayer: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel(store.isPlaying ? "暂停" : "播放")
+
+                Button(action: store.dismissCurrentTrack) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 34)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("关闭迷你播放器")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(.thinMaterial)
             .overlay(Divider(), alignment: .top)
+            .sheet(item: $lyricsTrack) { track in
+                IOS15LyricsSheet(track: track)
+            }
         }
     }
 }
