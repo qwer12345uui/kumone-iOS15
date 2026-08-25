@@ -26,11 +26,17 @@ public struct IOS15MainWindow: View {
             IOS15HomeTab(store: store, account: account)
                 .tag(IOS15Tab.home)
 
-            IOS15ProfileTab(store: store, account: account)
-                .tag(IOS15Tab.profile)
+            IOS15DiscoverTab(store: store)
+                .tag(IOS15Tab.explore)
+
+            IOS15FMTab(store: store)
+                .tag(IOS15Tab.fm)
 
             IOS15SearchTab(store: store)
                 .tag(IOS15Tab.search)
+
+            IOS15ProfileTab(store: store, account: account)
+                .tag(IOS15Tab.profile)
         }
         // The bar is inserted first; the outer mini-player inset then reserves
         // the physical bottom edge, so navigation consistently sits above the
@@ -80,22 +86,28 @@ public struct IOS15MainWindow: View {
 
 private enum IOS15Tab: CaseIterable, Hashable {
     case home
-    case profile
+    case explore
+    case fm
     case search
+    case profile
 
     var title: String {
         switch self {
-        case .home: return "首页"
-        case .profile: return "我的"
+        case .home: return "推荐"
+        case .explore: return "精选"
+        case .fm: return "漫游"
         case .search: return "搜索"
+        case .profile: return "我的"
         }
     }
 
     var symbolName: String {
         switch self {
         case .home: return "house.fill"
-        case .profile: return "person.crop.circle.fill"
+        case .explore: return "square.grid.2x2.fill"
+        case .fm: return "wave.3.right.circle.fill"
         case .search: return "magnifyingglass"
+        case .profile: return "person.crop.circle.fill"
         }
     }
 }
@@ -207,9 +219,11 @@ enum IOS15PlaybackMode: String, CaseIterable {
 final class IOS15MusicStore: ObservableObject {
     @Published private(set) var recommendations: [PlaylistSummary] = []
     @Published private(set) var discovery: [PlaylistSummary] = []
+    @Published private(set) var fmTracks: [Track] = []
     @Published private(set) var tracks: [Track] = []
     @Published private(set) var isLoadingRecommendations = false
     @Published private(set) var isLoadingDiscovery = false
+    @Published private(set) var isLoadingFM = false
     @Published private(set) var isSearching = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var currentTrack: Track?
@@ -253,6 +267,49 @@ final class IOS15MusicStore: ObservableObject {
             discovery = (try await NeteaseAPI.topPlaylists(category: "全部", limit: 30)).playlists
         } catch {
             errorMessage = "精选内容暂时无法加载，请稍后重试。"
+        }
+    }
+
+    func loadFM(force: Bool = false) async {
+        guard force || fmTracks.isEmpty, !isLoadingFM else { return }
+        isLoadingFM = true
+        defer { isLoadingFM = false }
+        do {
+            fmTracks = try await NeteaseAPI.personalFM()
+        } catch {
+            errorMessage = "漫游电台暂时无法加载，请登录后重试。"
+        }
+    }
+
+    func playFM(_ track: Track) async {
+        setPlayQueue(from: fmTracks, selecting: track)
+        await startPlayback(track)
+    }
+
+    func trashFM(_ track: Track) async {
+        do {
+            try await NeteaseAPI.fmTrash(id: track.id)
+        } catch {
+            // The server may reject a skip for anonymous sessions. Keep the
+            // local queue usable and surface the standard network message only
+            // when the replacement request also fails.
+        }
+        fmTracks.removeAll { $0.id == track.id }
+        if fmTracks.count < 3 {
+            do {
+                let replacement = try await NeteaseAPI.personalFM()
+                var known = Set(fmTracks.map(\.id))
+                fmTracks.append(contentsOf: replacement.filter { known.insert($0.id).inserted })
+            } catch {
+                errorMessage = "无法获取新的漫游歌曲，请检查登录状态或网络。"
+            }
+        }
+        if currentTrack?.id == track.id {
+            if let next = fmTracks.first {
+                await playFM(next)
+            } else {
+                dismissCurrentTrack()
+            }
         }
     }
 
@@ -745,6 +802,72 @@ private struct IOS15DiscoverTab: View {
         .navigationViewStyle(StackNavigationViewStyle())
         .task {
             await store.loadDiscovery()
+        }
+    }
+}
+
+private struct IOS15FMTab: View {
+    @ObservedObject var store: IOS15MusicStore
+
+    var body: some View {
+        NavigationView {
+            Group {
+                if store.fmTracks.isEmpty {
+                    VStack(spacing: 14) {
+                        if store.isLoadingFM {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "wave.3.right.circle")
+                                .font(.system(size: 38))
+                                .foregroundColor(.secondary)
+                        }
+                        Text("正在加载漫游电台")
+                            .foregroundColor(.secondary)
+                        if !store.isLoadingFM {
+                            Button("重新加载") {
+                                Task { await store.loadFM(force: true) }
+                            }
+                        }
+                    }
+                } else {
+                    List(store.fmTracks) { track in
+                        HStack(spacing: 4) {
+                            Button {
+                                Task { await store.playFM(track) }
+                            } label: {
+                                IOS15TrackRow(track: track, isCurrent: store.currentTrack?.id == track.id)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Button {
+                                Task { await store.trashFM(track) }
+                            } label: {
+                                Image(systemName: "forward.fill")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 34, height: 38)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .accessibilityLabel("不喜欢并跳过 \(track.name)")
+                        }
+                    }
+                    .listStyle(PlainListStyle())
+                }
+            }
+            .navigationBarTitle("漫游", displayMode: .large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        Task { await store.loadFM(force: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel("刷新漫游电台")
+                }
+            }
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .task {
+            await store.loadFM()
         }
     }
 }

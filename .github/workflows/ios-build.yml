@@ -1,7 +1,6 @@
 name: iOS 15 Build
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -17,6 +16,13 @@ on:
       - "Package.swift"
       - "Package.resolved"
       - ".github/workflows/ios-build.yml"
+  workflow_dispatch:
+    inputs:
+      run_ios15_simulator_tests:
+        description: "Run iOS 15 Simulator UI tests when an iOS 15 runtime is installed"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -89,4 +95,66 @@ jobs:
           name: KumoneIOS-iOS15-unsigned-${{ github.run_number }}
           path: ${{ steps.package.outputs.artifact_dir }}
           if-no-files-found: error
+          retention-days: 14
+
+  test-ios15-simulator:
+    name: Run iOS 15 simulator UI tests
+    runs-on: macos-26
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Report installed Simulator runtimes
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun simctl list runtimes | tee "$RUNNER_TEMP/simctl-runtimes.log"
+          xcrun simctl list devicetypes | tee "$RUNNER_TEMP/simctl-devicetypes.log"
+
+      - name: Create and boot iOS 15 Simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          RUNTIME_ID="$(xcrun simctl list runtimes --json | plutil -extract runtimes json -o - - | /usr/bin/python3 -c 'import json, sys; runtimes = json.load(sys.stdin); print(next((item["identifier"] for item in runtimes if item.get("isAvailable") and item.get("version", "").startswith("15.")), ""))')"
+          if [ -z "$RUNTIME_ID" ]; then
+            echo "No iOS 15 Simulator runtime is installed on this hosted runner." >&2
+            exit 1
+          fi
+          DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-13"
+          UDID="$(xcrun simctl create "Kumone iOS 15 CI" "$DEVICE_TYPE" "$RUNTIME_ID")"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Run iOS 15 UI tests
+        if: steps.simulator.outcome == 'success'
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/ios15-test"
+          xcodebuild test \
+            -workspace ios/KumoneIOS.xcworkspace \
+            -scheme KumoneIOS \
+            -testPlan KumoneIOS \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/ios15-test/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/ios15-test/KumoneIOS-iOS15.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            | tee "$RUNNER_TEMP/ios15-test/xcodebuild-test.log"
+
+      - name: Upload iOS 15 test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KumoneIOS-iOS15-test-evidence-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/simctl-runtimes.log
+            ${{ runner.temp }}/simctl-devicetypes.log
+            ${{ runner.temp }}/ios15-test
+          if-no-files-found: warn
           retention-days: 14
