@@ -206,7 +206,7 @@ final class IOS15MusicStore: ObservableObject {
         isSearching = true
         defer { isSearching = false }
         do {
-            tracks = try await NeteaseAPI.search(term, type: .song, limit: 50).songs ?? []
+            tracks = try await NeteaseAPI.search(term, type: .songs, limit: 50).songs ?? []
         } catch {
             errorMessage = "未能完成搜索，请检查网络后重试。"
         }
