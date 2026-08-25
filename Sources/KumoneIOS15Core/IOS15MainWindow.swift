@@ -217,6 +217,7 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var isPreparingPlayback = false
     @Published private(set) var playbackTime: TimeInterval = 0
     @Published private(set) var playbackMode: IOS15PlaybackMode = .sequential
+    @Published private(set) var playbackRate: Float = 1.0
     @Published private(set) var playHistory: [Track] = []
 
     private let playHistoryKey = "kumone.ios15.play-history.v1"
@@ -319,6 +320,7 @@ final class IOS15MusicStore: ObservableObject {
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         let player = AVPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = true
+        player.defaultRate = playbackRate
         self.player = player
         installPlaybackTimeObserver(on: player)
         installItemEndObserver(for: item)
@@ -380,7 +382,7 @@ final class IOS15MusicStore: ObservableObject {
         case .readyToPlay:
             guard !isPlaying else { return }
             isPreparingPlayback = false
-            player?.play()
+            player?.playImmediately(atRate: playbackRate)
             isPlaying = true
             recordPlayback(of: track)
             publishNowPlayingInfo(for: track)
@@ -407,13 +409,57 @@ final class IOS15MusicStore: ObservableObject {
         playQueue = normalized.contains(where: { $0.id == track.id }) ? normalized : [track]
     }
 
+    func playPrevious() {
+        guard !isPreparingPlayback, let currentTrack else { return }
+        guard let index = playQueue.firstIndex(where: { $0.id == currentTrack.id }), index > 0 else {
+            playbackTime = 0
+            player?.seek(to: .zero)
+            resumePlayback()
+            return
+        }
+        Task { await startPlayback(playQueue[index - 1]) }
+    }
+
+    func playNext() {
+        guard !isPreparingPlayback, let currentTrack, !playQueue.isEmpty else { return }
+        let nextTrack: Track?
+        if playbackMode == .shuffle {
+            let alternatives = playQueue.filter { $0.id != currentTrack.id }
+            nextTrack = alternatives.randomElement() ?? currentTrack
+        } else if let index = playQueue.firstIndex(where: { $0.id == currentTrack.id }),
+                  index + 1 < playQueue.count {
+            nextTrack = playQueue[index + 1]
+        } else {
+            nextTrack = nil
+        }
+        guard let nextTrack else { return }
+        Task { await startPlayback(nextTrack) }
+    }
+
+    func cyclePlaybackRate() {
+        let rates: [Float] = [1.0, 1.25, 1.5, 2.0]
+        let index = rates.firstIndex(where: { abs($0 - playbackRate) < 0.01 }) ?? 0
+        playbackRate = rates[(index + 1) % rates.count]
+        player?.defaultRate = playbackRate
+        if isPlaying {
+            player?.rate = playbackRate
+        }
+        refreshNowPlayingPlaybackState()
+    }
+
+    var playbackRateLabel: String {
+        abs(playbackRate.rounded() - playbackRate) < 0.001
+            ? String(format: "%.0f×", playbackRate)
+            : String(format: "%.2g×", playbackRate)
+    }
+
     private func handlePlaybackFinished() {
         guard let currentTrack else { return }
         switch playbackMode {
         case .repeatOne:
             playbackTime = 0
             player?.seek(to: .zero)
-            player?.play()
+            player?.playImmediately(atRate: playbackRate)
             isPlaying = true
             refreshNowPlayingPlaybackState()
         case .sequential:
@@ -488,6 +534,8 @@ final class IOS15MusicStore: ObservableObject {
         commandCenter.playCommand.isEnabled = true
         commandCenter.pauseCommand.isEnabled = true
         commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.nextTrackCommand.isEnabled = true
+        commandCenter.previousTrackCommand.isEnabled = true
 
         commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self else { return .commandFailed }
@@ -504,11 +552,21 @@ final class IOS15MusicStore: ObservableObject {
             Task { @MainActor in self.togglePlayback() }
             return .success
         }
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.playNext() }
+            return .success
+        }
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.playPrevious() }
+            return .success
+        }
     }
 
     private func resumePlayback() {
         guard let player else { return }
-        player.play()
+        player.playImmediately(atRate: playbackRate)
         isPlaying = true
         refreshNowPlayingPlaybackState()
     }
@@ -525,7 +583,7 @@ final class IOS15MusicStore: ObservableObject {
             MPMediaItemPropertyTitle: track.name,
             MPMediaItemPropertyArtist: track.artistNames,
             MPMediaItemPropertyAlbumTitle: track.album.name,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? playbackRate : 0.0
         ]
         let seconds = player?.currentTime().seconds ?? 0
         if seconds.isFinite { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = seconds }
@@ -870,28 +928,35 @@ private struct IOS15MiniPlayer: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel("显示歌词")
-                Spacer(minLength: 0)
-                Button(action: store.cyclePlaybackMode) {
-                    Image(systemName: store.playbackMode.symbolName)
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 30, height: 34)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel("播放模式：\(store.playbackMode.title)")
+                Spacer(minLength: 2)
+                miniControl(symbol: "backward.end.fill", label: "上一曲", action: store.playPrevious)
+                miniControl(
+                    symbol: store.playbackMode.symbolName,
+                    label: "播放模式：\(store.playbackMode.title)",
+                    action: store.cyclePlaybackMode
+                )
 
                 if store.isPreparingPlayback {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle())
-                        .frame(width: 34, height: 34)
+                        .frame(width: 28, height: 30)
                         .accessibilityLabel("正在加载音频流")
                 } else {
-                    Button(action: store.togglePlayback) {
-                        Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
-                            .frame(width: 34, height: 34)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .accessibilityLabel(store.isPlaying ? "暂停" : "播放")
+                    miniControl(
+                        symbol: store.isPlaying ? "pause.fill" : "play.fill",
+                        label: store.isPlaying ? "暂停" : "播放",
+                        action: store.togglePlayback
+                    )
                 }
+
+                miniControl(symbol: "forward.end.fill", label: "下一曲", action: store.playNext)
+                Button(action: store.cyclePlaybackRate) {
+                    Text(store.playbackRateLabel)
+                        .font(.caption2.weight(.bold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("播放倍速：\(store.playbackRateLabel)")
 
                 Button(action: store.dismissCurrentTrack) {
                     Image(systemName: "xmark")
@@ -909,5 +974,19 @@ private struct IOS15MiniPlayer: View {
                 IOS15LyricsSheet(track: track, store: store)
             }
         }
+    }
+
+    private func miniControl(
+        symbol: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 28, height: 30)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel(label)
     }
 }

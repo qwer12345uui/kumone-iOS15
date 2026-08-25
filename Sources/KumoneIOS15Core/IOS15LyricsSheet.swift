@@ -53,19 +53,54 @@ struct IOS15LyricsSheet: View {
                                 scrollActiveLine(with: proxy)
                             }
 
-                            VStack(spacing: 5) {
-                                ProgressView(
-                                    value: min(max(0, store.playbackTime), progressTotal),
-                                    total: progressTotal
-                                )
-                                .tint(.pink)
-                                HStack {
-                                    Text(timeText(store.playbackTime))
-                                    Spacer()
-                                    Text(timeText(progressTotal))
+                            VStack(spacing: 13) {
+                                VStack(spacing: 5) {
+                                    ProgressView(
+                                        value: min(max(0, store.playbackTime), progressTotal),
+                                        total: progressTotal
+                                    )
+                                    .tint(.pink)
+                                    HStack {
+                                        Text(timeText(store.playbackTime))
+                                        Spacer()
+                                        Text(timeText(progressTotal))
+                                    }
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundColor(.secondary)
                                 }
-                                .font(.caption2.monospacedDigit())
-                                .foregroundColor(.secondary)
+
+                                HStack(spacing: 20) {
+                                    lyricControlButton(
+                                        symbol: "backward.end.fill",
+                                        label: "上一曲",
+                                        action: store.playPrevious
+                                    )
+                                    lyricControlButton(
+                                        symbol: store.playbackMode.symbolName,
+                                        label: "播放模式：\(store.playbackMode.title)",
+                                        action: store.cyclePlaybackMode
+                                    )
+                                    lyricControlButton(
+                                        symbol: store.isPlaying ? "pause.circle.fill" : "play.circle.fill",
+                                        label: store.isPlaying ? "暂停" : "播放",
+                                        emphasized: true,
+                                        action: store.togglePlayback
+                                    )
+                                    lyricControlButton(
+                                        symbol: "forward.end.fill",
+                                        label: "下一曲",
+                                        action: store.playNext
+                                    )
+                                    Button(action: store.cyclePlaybackRate) {
+                                        Text(store.playbackRateLabel)
+                                            .font(.caption.weight(.bold))
+                                            .frame(width: 36, height: 36)
+                                            .background(Color.pink.opacity(0.15), in: Circle())
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .accessibilityLabel("播放倍速：\(store.playbackRateLabel)")
+                                }
+                                .foregroundColor(.primary)
                             }
                             .padding(.horizontal, 22)
                             .padding(.vertical, 12)
@@ -76,12 +111,6 @@ struct IOS15LyricsSheet: View {
             }
             .navigationBarTitle(track.name, displayMode: .inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: store.cyclePlaybackMode) {
-                        Image(systemName: store.playbackMode.symbolName)
-                    }
-                    .accessibilityLabel("播放模式：\(store.playbackMode.title)")
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
                         presentationMode.wrappedValue.dismiss()
@@ -96,6 +125,21 @@ struct IOS15LyricsSheet: View {
         .task {
             await loadLyrics()
         }
+    }
+
+    private func lyricControlButton(
+        symbol: String,
+        label: String,
+        emphasized: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: emphasized ? 32 : 19, weight: .semibold))
+                .frame(width: 38, height: 38)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder
