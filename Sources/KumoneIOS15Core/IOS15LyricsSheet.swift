@@ -16,6 +16,10 @@ struct IOS15LyricsSheet: View {
         return originalLines.last(where: { $0.time <= store.playbackTime })?.id ?? first.id
     }
 
+    private var progressTotal: TimeInterval {
+        max(1, max(track.duration, originalLines.last?.time ?? 0))
+    }
+
     var body: some View {
         NavigationView {
             Group {
@@ -31,21 +35,41 @@ struct IOS15LyricsSheet: View {
                     }
                 } else {
                     ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 24) {
-                                ForEach(originalLines) { line in
-                                    lyricRow(line, isActive: line.id == activeLineID)
-                                        .id(line.id)
+                        VStack(spacing: 0) {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 24) {
+                                    ForEach(originalLines) { line in
+                                        lyricRow(line, isActive: line.id == activeLineID)
+                                            .id(line.id)
+                                    }
                                 }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 54)
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 54)
-                        }
-                        .onAppear {
-                            scrollActiveLine(with: proxy)
-                        }
-                        .onChange(of: activeLineID) { _ in
-                            scrollActiveLine(with: proxy)
+                            .onAppear {
+                                scrollActiveLine(with: proxy)
+                            }
+                            .onChange(of: activeLineID) { _ in
+                                scrollActiveLine(with: proxy)
+                            }
+
+                            VStack(spacing: 5) {
+                                ProgressView(
+                                    value: min(max(0, store.playbackTime), progressTotal),
+                                    total: progressTotal
+                                )
+                                .tint(.pink)
+                                HStack {
+                                    Text(timeText(store.playbackTime))
+                                    Spacer()
+                                    Text(timeText(progressTotal))
+                                }
+                                .font(.caption2.monospacedDigit())
+                                .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 12)
+                            .background(.thinMaterial)
                         }
                     }
                 }
@@ -87,6 +111,12 @@ struct IOS15LyricsSheet: View {
         .animation(.easeInOut(duration: 0.2), value: isActive)
     }
 
+    private func timeText(_ time: TimeInterval) -> String {
+        guard time.isFinite else { return "0:00" }
+        let totalSeconds = max(0, Int(time.rounded(.down)))
+        return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+    }
+
     private func scrollActiveLine(with proxy: ScrollViewProxy) {
         guard let activeLineID else { return }
         withAnimation(.easeInOut(duration: 0.28)) {
@@ -119,42 +149,53 @@ struct IOS15LyricsSheet: View {
         }
     }
 
+    /// Parses NetEase LRC tags with any minute width, optional fractional seconds,
+    /// `.` or `:` fraction separators, and more than one timestamp per text line.
     private static func lines(from raw: String?) -> [TimedLyricLine] {
-        guard let raw else { return [] }
-        let expression = try? NSRegularExpression(pattern: #"\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)\]"#)
+        guard let raw, !raw.isEmpty else { return [] }
+        let expression = try? NSRegularExpression(pattern: #"\[(\d+):(\d+)(?:[.:](\d+))?\]"#)
         guard let expression else { return [] }
 
         var lines: [TimedLyricLine] = []
         var index = 0
-        for rawLine in raw.split(whereSeparator: \.isNewline) {
-            let source = String(rawLine)
-            let range = NSRange(source.startIndex..., in: source)
-            let matches = expression.matches(in: source, range: range)
-            guard let finalMatch = matches.last,
-                  let textRange = Range(NSRange(location: finalMatch.range.upperBound,
-                                                 length: range.upperBound - finalMatch.range.upperBound),
-                                        in: source)
-            else { continue }
+        for rawLine in raw.components(separatedBy: .newlines) {
+            let source = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !source.isEmpty else { continue }
+            let sourceRange = NSRange(source.startIndex..., in: source)
+            let matches = expression.matches(in: source, range: sourceRange)
+            guard let finalMatch = matches.last else { continue }
 
+            let textStart = finalMatch.range.location + finalMatch.range.length
+            guard textStart <= sourceRange.upperBound,
+                  let textRange = Range(NSRange(location: textStart,
+                                                 length: sourceRange.upperBound - textStart), in: source)
+            else { continue }
             let text = String(source[textRange]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
+
             for match in matches {
-                guard let timestampRange = Range(match.range(at: 1), in: source),
-                      let timestamp = timestamp(from: String(source[timestampRange]))
+                guard let minuteRange = Range(match.range(at: 1), in: source),
+                      let secondRange = Range(match.range(at: 2), in: source),
+                      let minutes = Double(source[minuteRange]),
+                      let seconds = Double(source[secondRange])
                 else { continue }
-                lines.append(TimedLyricLine(id: index, time: timestamp, text: text))
+
+                var fraction = 0.0
+                let fractionRange = match.range(at: 3)
+                if fractionRange.location != NSNotFound,
+                   let range = Range(fractionRange, in: source),
+                   let value = Double(source[range]) {
+                    fraction = value / pow(10, Double(source[range].count))
+                }
+                lines.append(TimedLyricLine(
+                    id: index,
+                    time: minutes * 60 + seconds + fraction,
+                    text: text
+                ))
                 index += 1
             }
         }
         return lines.sorted { $0.time == $1.time ? $0.id < $1.id : $0.time < $1.time }
-    }
-
-    private static func timestamp(from text: String) -> TimeInterval? {
-        let parts = text.split(separator: ":", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let minutes = Double(parts[0]), let seconds = Double(parts[1]) else {
-            return nil
-        }
-        return minutes * 60 + seconds
     }
 }
 
@@ -164,7 +205,7 @@ private struct TimedLyricLine: Identifiable {
     let text: String
 
     var timestampKey: Int {
-        Int((time * 1_000).rounded())
+        Int((time * 100).rounded())
     }
 }
 

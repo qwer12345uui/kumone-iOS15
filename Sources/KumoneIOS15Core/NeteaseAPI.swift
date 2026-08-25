@@ -366,8 +366,19 @@ enum NeteaseAPI {
     }
 
     static func lyric(id: Int) async throws -> LyricResponse {
-        try await weapi(LyricResponse.self, "/song/lyric",
-                        ["id": id, "lv": -1, "kv": -1, "tv": -1, "rv": -1])
+        // The public route returns NetEase's plain LRC payload directly and avoids
+        // the compatibility layer receiving an empty encrypted lyric body.
+        let data = try await client.publicAPI(
+            "/song/lyric",
+            query: [
+                URLQueryItem(name: "id", value: String(id)),
+                URLQueryItem(name: "lv", value: "-1"),
+                URLQueryItem(name: "kv", value: "-1"),
+                URLQueryItem(name: "tv", value: "-1"),
+                URLQueryItem(name: "rv", value: "-1"),
+            ]
+        )
+        return try client.decoded(LyricResponse.self, from: data)
     }
 
     struct FMResponse: Decodable {

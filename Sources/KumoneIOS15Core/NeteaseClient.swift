@@ -174,6 +174,20 @@ final class NeteaseClient: @unchecked Sendable {
         return try await perform(request)
     }
 
+    /// GETs a public JSON endpoint on the main music host. This is used for
+    /// lyric data, whose public route returns the plain LRC body directly.
+    func publicAPI(_ path: String, query: [URLQueryItem]) async throws -> Data {
+        var components = URLComponents(string: "https://music.163.com/api\(path)")!
+        components.queryItems = query
+        guard let url = components.url else { throw NeteaseAPIError.http(-1) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://music.163.com", forHTTPHeaderField: "Referer")
+        request.setValue(cookieHeader(extra: ["os": "pc", "appver": "3.1.17"]), forHTTPHeaderField: "Cookie")
+        return try await perform(request)
+    }
+
     private func perform(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw NeteaseAPIError.http(-1) }
