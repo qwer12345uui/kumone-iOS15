@@ -37,7 +37,7 @@ SwiftUI 编写 · 直连网易云真实 API · Sparkle 自动更新
 
 ## 功能
 
-- 🔐 **扫码登录** — 网易云 App 扫码，Cookie 本地持久化，自动续期
+- 🔐 **登录** — 手机号 + 短信验证码与扫码并列；扫码轮询容忍 App 切换期间的短暂断网，回到应用后自动续上，Cookie 本地持久化
 - 🏠 **推荐** — 每日推荐、私人漫游、心动模式、推荐歌单、雷达歌单（私人雷达系列，按账号个性化）、排行榜、新碟上架、推荐歌手
 - 🧭 **精选** — 分类歌单（精品 / 官方 / 排行榜 / 场景分类）无限滚动
 - 🎵 **播放** — AVPlayer 引擎，标准 ~ Hi-Res 音质可选（黑胶 VIP 可播无损，自动回落），随机 / 单曲循环 / 列表循环，下一首播放队列，灰色歌曲识别
@@ -72,9 +72,9 @@ brew install owo-network/brew/kumone --cask
 
 ### iOS / iPadOS（侧载）
 
-每次发版都会附带**无签名**的 `Kumone-iOS-x.y.z.ipa`（iOS 17+）。Kumone 是非官方客户端，不会上架 App Store 或 TestFlight，请用侧载工具以自己的 Apple ID 签名安装 —— [AltStore](https://altstore.io)、[SideStore](https://sidestore.io)、[Sideloadly](https://sideloadly.io) 或 Xcode 均可。
+每次发版都会附带**无签名**的 `Kumone-iOS-x.y.z.ipa`（iOS 15+）。Kumone 是非官方客户端，不会上架 App Store 或 TestFlight，请用侧载工具以自己的 Apple ID 签名安装 —— [AltStore](https://altstore.io)、[SideStore](https://sidestore.io)、[Sideloadly](https://sideloadly.io) 或 Xcode 均可。
 
-更新：iOS 应用无法自我替换。设置 → 关于 → **检查更新** 会提示是否有新版本并给出下载链接，下载新 IPA 后用同一工具重新安装即可，登录状态与设置会保留。AltStore / SideStore 也可通过 source 自动追踪发布。
+更新：iOS 应用无法自我替换。设置 → 关于 → **检查更新** 会查询最新 GitHub Release，并在发现新版本时给出下载页面链接；下载新 IPA 后用同一工具重新安装即可，登录状态与设置会保留。AltStore / SideStore 也可通过 source 自动追踪发布。
 
 ## 构建
 

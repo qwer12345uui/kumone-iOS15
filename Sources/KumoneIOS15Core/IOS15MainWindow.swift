@@ -9,6 +9,7 @@ import UIKit
 @MainActor
 public struct IOS15MainWindow: View {
     @StateObject private var store = IOS15MusicStore()
+    @StateObject private var account = IOS15AccountStore()
     @State private var selectedTab = IOS15Tab.home
     @State private var selectionFeedback = UISelectionFeedbackGenerator()
 
@@ -16,7 +17,7 @@ public struct IOS15MainWindow: View {
 
     public var body: some View {
         TabView(selection: $selectedTab) {
-            IOS15HomeTab(store: store)
+            IOS15HomeTab(store: store, account: account)
                 .tabItem {
                     Label("推荐", systemImage: "house.fill")
                 }
@@ -171,6 +172,8 @@ final class IOS15MusicStore: ObservableObject {
 
 private struct IOS15HomeTab: View {
     @ObservedObject var store: IOS15MusicStore
+    @ObservedObject var account: IOS15AccountStore
+    @State private var showSettings = false
 
     var body: some View {
         NavigationView {
@@ -184,6 +187,14 @@ private struct IOS15HomeTab: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("设置")
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
                         Task { await store.loadRecommendations(force: true) }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -193,6 +204,9 @@ private struct IOS15HomeTab: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .sheet(isPresented: $showSettings) {
+            IOS15SettingsView(account: account)
+        }
         .task {
             await store.loadRecommendations()
         }

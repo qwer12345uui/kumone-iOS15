@@ -37,7 +37,7 @@ Built with SwiftUI · Talks directly to NetEase's real API · Sparkle auto-updat
 
 ## Features
 
-- 🔐 **QR code login** — scan with the NetEase Cloud Music app; cookies are persisted locally and auto-refreshed
+- 🔐 **Sign in** — phone number + SMS code alongside QR login; QR polling tolerates app-switch network interruptions and resumes when you return, with cookies persisted locally
 - 🏠 **Home** — daily recommendations, Personal FM, Heartbeat Mode, recommended playlists, radar playlists (Personal Radar family, personalized per account), charts, new albums, recommended artists
 - 🧭 **Explore** — category playlists (curated / official / charts / mood) with infinite scrolling
 - 🎵 **Playback** — AVPlayer engine, Standard to Hi-Res quality (lossless with 黑胶 VIP, automatic fallback), shuffle / repeat one / repeat all, play-next queue, gray track detection
@@ -73,14 +73,14 @@ built-in Sparkle automatic updates (menu bar: Kumone → Check for Updates…).
 
 ### iOS / iPadOS (sideload)
 
-Every release ships an **unsigned** `Kumone-iOS-x.y.z.ipa` (iOS 17+). Kumone
+Every release ships an **unsigned** `Kumone-iOS-x.y.z.ipa` (iOS 15+). Kumone
 is an unofficial client and will not be on the App Store or TestFlight, so
 install it with a sideloading tool that signs the IPA with your own Apple ID —
 [AltStore](https://altstore.io), [SideStore](https://sidestore.io),
 [Sideloadly](https://sideloadly.io) or Xcode all work.
 
 Updating: iOS apps can't replace themselves. Settings → About → **Check for
-Updates** tells you when a newer release exists and links to it; download the
+Updates** checks the latest GitHub release and links to its download page when a newer version is available; download the
 new IPA and reinstall with the same tool — sign-in state and settings are kept.
 AltStore / SideStore can also track the release automatically via a source.
 
