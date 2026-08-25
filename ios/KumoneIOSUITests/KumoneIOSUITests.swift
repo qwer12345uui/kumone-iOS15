@@ -23,7 +23,7 @@ final class KumoneIOSUITests: XCTestCase {
     @MainActor
     func testIOS15PlayerChromeLyricsAndQueue() throws {
         let app = XCUIApplication()
-        app.launchEnvironment["KUMONE_UI_TEST_PREVIEW_TRACK"] = "1"
+        app.launchArguments.append("-KumonePlayerPreview")
         app.launch()
 
         XCTAssertTrue(app.buttons["歌词"].waitForExistence(timeout: 8))

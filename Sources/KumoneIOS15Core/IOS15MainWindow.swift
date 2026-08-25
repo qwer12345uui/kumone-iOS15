@@ -9,12 +9,17 @@ import UIKit
 /// models as the desktop client.
 @MainActor
 public struct IOS15MainWindow: View {
-    @StateObject private var store = IOS15MusicStore()
+    @StateObject private var store: IOS15MusicStore
     @StateObject private var account = IOS15AccountStore()
     @State private var selectedTab = IOS15Tab.home
     @State private var selectionFeedback = UISelectionFeedbackGenerator()
 
     public init() {
+        let arguments = ProcessInfo.processInfo.arguments
+        let environment = ProcessInfo.processInfo.environment
+        let installPreview = arguments.contains("-KumonePlayerPreview")
+            || environment["KUMONE_UI_TEST_PREVIEW_TRACK"] == "1"
+        _store = StateObject(wrappedValue: IOS15MusicStore(installingUITestPreview: installPreview))
         // The standard tab bar is replaced by an accessible SwiftUI bar below.
         // Hiding it at appearance time retains TabView's content switching while
         // avoiding a second navigation layer behind the floating glass container.
@@ -247,14 +252,15 @@ final class IOS15MusicStore: ObservableObject {
     private var timeObserver: Any?
     private var remoteCommandsInstalled = false
 
-    init() {
+    init(installingUITestPreview: Bool = false) {
         loadPlayHistory()
         loadPlaybackMode()
-        installUITestPreviewTrackIfNeeded()
+        if installingUITestPreview {
+            installUITestPreviewTrack()
+        }
     }
 
-    private func installUITestPreviewTrackIfNeeded() {
-        guard ProcessInfo.processInfo.environment["KUMONE_UI_TEST_PREVIEW_TRACK"] == "1" else { return }
+    private func installUITestPreviewTrack() {
         let fixture = """
         [
           {"id": -15001, "name": "播放器测试歌曲", "ar": [{"id": 1, "name": "Kumone"}], "al": {"id": 1, "name": "iOS 15 测试专辑", "picUrl": null}, "dt": 240000, "fee": 0, "mv": 0, "no": 1},
