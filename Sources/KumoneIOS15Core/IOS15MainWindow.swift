@@ -265,13 +265,10 @@ final class IOS15MusicStore: ObservableObject {
             return
         }
 
-        do {
-            try configurePlaybackSession()
-        } catch {
-            errorMessage = "音频会话初始化失败：\(error.localizedDescription)"
-            isPreparingPlayback = false
-            return
-        }
+        // Foreground playback must not be blocked by an optional session policy.
+        // Some iOS 15 devices return the generic 'what' OSStatus for explicit
+        // session activation even though AVPlayer can still start normally.
+        configurePlaybackSessionIfPossible()
 
         player?.pause()
         playerItemStatusObservation?.invalidate()
@@ -348,20 +345,14 @@ final class IOS15MusicStore: ObservableObject {
         }
     }
 
-    /// Selects a long-form audio session before AVPlayer starts. Combined with the
-    /// `audio` background mode in Info.plist, this keeps user-initiated playback
-    /// alive while the app is backgrounded or the device is locked.
-    private func configurePlaybackSession() throws {
+    /// Attempts to prepare background-capable audio, but deliberately never
+    /// blocks foreground playback when a device rejects explicit session changes.
+    private func configurePlaybackSessionIfPossible() {
         let session = AVAudioSession.sharedInstance()
-        // Keep the iOS 15 session contract minimal. The long-form policy is not
-        // needed for background audio and can reject a category change on devices
-        // with certain active audio routes, yielding OSStatus -50.
-        try session.setCategory(
-            .playback,
-            mode: .default,
-            options: [.allowAirPlay, .allowBluetoothA2DP]
-        )
-        try session.setActive(true)
+        // Avoid optional policies and route-specific options. On iOS 15 the
+        // default AVPlayer session is sufficient for foreground playback.
+        try? session.setCategory(.playback, mode: .default)
+        try? session.setActive(true)
     }
 
     private func installRemoteCommandsIfNeeded() {
