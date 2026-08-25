@@ -233,10 +233,14 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var playbackMode: IOS15PlaybackMode = .sequential
     @Published private(set) var playbackRate: Float = 1.0
     @Published private(set) var playHistory: [Track] = []
+    @Published private(set) var playQueue: [Track] = []
+    @Published private(set) var isMuted = false
+    /// UI-only status for the active authorized resolver. The built-in resolver
+    /// remains the default until an explicitly authorized provider is supplied.
+    @Published private(set) var audioSourceStatus = "内置播放服务"
 
     private let playHistoryKey = "kumone.ios15.play-history.v1"
     private let playbackModeKey = "kumone.ios15.playback-mode.v1"
-    private var playQueue: [Track] = []
     private var player: AVPlayer?
     private var playerItemStatusObservation: NSKeyValueObservation?
     private var itemEndObserver: NSObjectProtocol?
@@ -246,6 +250,24 @@ final class IOS15MusicStore: ObservableObject {
     init() {
         loadPlayHistory()
         loadPlaybackMode()
+        installUITestPreviewTrackIfNeeded()
+    }
+
+    private func installUITestPreviewTrackIfNeeded() {
+        guard ProcessInfo.processInfo.environment["KUMONE_UI_TEST_PREVIEW_TRACK"] == "1" else { return }
+        let fixture = """
+        [
+          {"id": -15001, "name": "播放器测试歌曲", "ar": [{"id": 1, "name": "Kumone"}], "al": {"id": 1, "name": "iOS 15 测试专辑", "picUrl": null}, "dt": 240000, "fee": 0, "mv": 0, "no": 1},
+          {"id": -15002, "name": "队列测试歌曲", "ar": [{"id": 2, "name": "Kumone"}], "al": {"id": 2, "name": "iOS 15 测试专辑", "picUrl": null}, "dt": 180000, "fee": 0, "mv": 0, "no": 2}
+        ]
+        """
+        guard let data = fixture.data(using: .utf8),
+              let tracks = try? JSONDecoder().decode([Track].self, from: data),
+              let current = tracks.first else { return }
+        currentTrack = current
+        playQueue = tracks
+        playbackTime = 42
+        audioSourceStatus = "测试内置音源"
     }
 
     func loadRecommendations(force: Bool = false) async {
@@ -377,6 +399,7 @@ final class IOS15MusicStore: ObservableObject {
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         let player = AVPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = true
+        player.isMuted = isMuted
         self.player = player
         installPlaybackTimeObserver(on: player)
         installItemEndObserver(for: item)
@@ -490,6 +513,16 @@ final class IOS15MusicStore: ObservableObject {
         }
         guard let nextTrack else { return }
         Task { await startPlayback(nextTrack) }
+    }
+
+    func selectQueuedTrack(_ track: Track) {
+        guard !isPreparingPlayback else { return }
+        Task { await startPlayback(track) }
+    }
+
+    func toggleMuted() {
+        isMuted.toggle()
+        player?.isMuted = isMuted
     }
 
     func cyclePlaybackRate() {
@@ -669,6 +702,14 @@ final class IOS15MusicStore: ObservableObject {
         }
     }
 
+    func seek(to seconds: TimeInterval) {
+        guard let player, seconds.isFinite else { return }
+        let clamped = max(0, min(seconds, currentTrack?.duration ?? seconds))
+        playbackTime = clamped
+        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
+        refreshNowPlayingPlaybackState()
+    }
+
     func dismissCurrentTrack() {
         player?.pause()
         removePlaybackTimeObserver()
@@ -682,6 +723,7 @@ final class IOS15MusicStore: ObservableObject {
         currentTrack = nil
         isPlaying = false
         isPreparingPlayback = false
+        isMuted = false
         playbackTime = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -1024,7 +1066,7 @@ struct IOS15TrackRow: View {
     }
 }
 
-private struct IOS15MiniPlayer: View {
+private struct IOS15LegacyMiniPlayer: View {
     @ObservedObject var store: IOS15MusicStore
     @State private var lyricsTrack: Track?
 

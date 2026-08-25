@@ -8,6 +8,7 @@ struct IOS15LyricsSheet: View {
 
     @State private var originalLines: [TimedLyricLine] = []
     @State private var translatedByTimestamp: [Int: String] = [:]
+    @State private var showQueue = false
     @State private var isLoading = true
     @State private var message: String?
 
@@ -36,6 +37,16 @@ struct IOS15LyricsSheet: View {
                 } else {
                     ScrollViewReader { proxy in
                         VStack(spacing: 0) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "waveform.path.ecg")
+                                Text("当前音源：\(store.audioSourceStatus)")
+                            }
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 10)
+
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: 24) {
                                     ForEach(originalLines) { line in
@@ -115,8 +126,17 @@ struct IOS15LyricsSheet: View {
                     .accessibilityLabel("播放模式：\(store.playbackMode.title)")
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") {
-                        presentationMode.wrappedValue.dismiss()
+                    HStack(spacing: 16) {
+                        Button {
+                            showQueue = true
+                        } label: {
+                            Image(systemName: "list.bullet")
+                        }
+                        .accessibilityLabel("播放队列")
+
+                        Button("完成") {
+                            presentationMode.wrappedValue.dismiss()
+                        }
                     }
                 }
             }
@@ -124,6 +144,9 @@ struct IOS15LyricsSheet: View {
         .navigationViewStyle(StackNavigationViewStyle())
         .ios15EdgeBack {
             presentationMode.wrappedValue.dismiss()
+        }
+        .sheet(isPresented: $showQueue) {
+            IOS15PlaybackQueueSheet(store: store)
         }
         .task {
             await loadLyrics()
