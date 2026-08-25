@@ -265,14 +265,7 @@ final class IOS15MusicStore: ObservableObject {
     /// supplied endpoint, while some regional CDN links do not negotiate TLS.
     private func makePlayerItem(rawURL: String) -> AVPlayerItem? {
         guard let url = URL(string: rawURL) else { return nil }
-        let headers = [
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15",
-            "Referer": "https://music.163.com/"
-        ]
-        let asset = AVURLAsset(
-            url: url,
-            options: [AVURLAssetHTTPHeaderFieldsKey: headers]
-        )
+        let asset = AVURLAsset(url: url)
         return AVPlayerItem(asset: asset)
     }
 
