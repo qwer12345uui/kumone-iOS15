@@ -1,0 +1,92 @@
+name: iOS 15 Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "ios/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    paths:
+      - "Sources/**"
+      - "ios/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - ".github/workflows/ios-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-unsigned-ipa:
+    name: Build iOS 15 baseline IPA
+    runs-on: macos-26
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Report Xcode toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve Swift package dependencies
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -workspace ios/KumoneIOS.xcworkspace \
+            -scheme KumoneIOS
+
+      - name: Build for generic iOS device
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace ios/KumoneIOS.xcworkspace \
+            -scheme KumoneIOS \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Verify deployment baseline and package IPA
+        id: package
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/KumoneIOS.app"
+          test -d "$APP"
+
+          MINIMUM_OS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")"
+          test "$MINIMUM_OS" = "15.0"
+
+          ARTIFACT_DIR="$RUNNER_TEMP/ipa"
+          mkdir -p "$ARTIFACT_DIR/Payload"
+          ditto "$APP" "$ARTIFACT_DIR/Payload/KumoneIOS.app"
+          (cd "$ARTIFACT_DIR" && ditto -c -k --sequesterRsrc --keepParent Payload KumoneIOS-iOS15-unsigned.ipa)
+
+          unzip -l "$ARTIFACT_DIR/KumoneIOS-iOS15-unsigned.ipa" | grep -q 'Payload/KumoneIOS.app/Info.plist'
+          cp "$RUNNER_TEMP/xcodebuild.log" "$ARTIFACT_DIR/xcodebuild.log"
+          echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Upload unsigned IPA and build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: KumoneIOS-iOS15-unsigned-${{ github.run_number }}
+          path: ${{ steps.package.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 14

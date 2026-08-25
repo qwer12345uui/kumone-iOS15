@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 #if os(iOS)
 public struct IOSMainWindow: View {
@@ -10,11 +13,9 @@ public struct IOSMainWindow: View {
 
     @State private var selectedTab: IOSTab = .home
     @State private var showLogin = false
-    @State private var homePath = NavigationPath()
-    @State private var explorePath = NavigationPath()
-    @State private var fmPath = NavigationPath()
-    @State private var searchPath = NavigationPath()
-    @State private var libraryPath = NavigationPath()
+    /// UIKit's system selection generator is available from iOS 10 and is
+    /// intentionally prepared again after every tap for consecutive changes.
+    @State private var selectionFeedback = UISelectionFeedbackGenerator()
 
     public init() {}
 
@@ -61,6 +62,9 @@ public struct IOSMainWindow: View {
 
     private var tabInterface: some View {
         ZStack(alignment: .bottom) {
+            // `TabView` delegates sizing, material, safe-area avoidance, VoiceOver
+            // order, and hit testing to UIKit's UITabBar. With three direct items,
+            // UIKit keeps all three tap regions evenly distributed across the bar.
             TabView(selection: $selectedTab) {
                 NavigationStack {
                     HomeView()
@@ -81,24 +85,6 @@ public struct IOSMainWindow: View {
                 .tag(IOSTab.explore)
 
                 NavigationStack {
-                    FMView()
-                        .appDestinations()
-                }
-                .tabItem {
-                    Label("漫游", systemImage: "wave.3.right.circle.fill")
-                }
-                .tag(IOSTab.fm)
-
-                NavigationStack {
-                    SearchView(query: "")
-                        .appDestinations()
-                }
-                .tabItem {
-                    Label("搜索", systemImage: "magnifyingglass")
-                }
-                .tag(IOSTab.search)
-
-                NavigationStack {
                     IOSLibraryView(showLogin: $showLogin)
                         .appDestinations()
                 }
@@ -107,6 +93,19 @@ public struct IOSMainWindow: View {
                 }
                 .tag(IOSTab.library)
             }
+            // Keep the system tab bar's own material and safe-area behavior. No
+            // drag recognizer is added, so vertical scroll views retain their gestures.
+            .onAppear {
+                selectionFeedback.prepare()
+            }
+            .onChange(of: selectedTab) { _ in
+                selectionFeedback.selectionChanged()
+                selectionFeedback.prepare()
+            }
+            .animation(
+                .spring(response: 0.28, dampingFraction: 0.86, blendDuration: 0),
+                value: selectedTab
+            )
 
             if player.hasCurrentTrack {
                 IOSMiniPlayerBar()
@@ -120,7 +119,7 @@ public struct IOSMainWindow: View {
 }
 
 enum IOSTab: Hashable {
-    case home, explore, fm, search, library
+    case home, explore, library
 }
 
 // MARK: - Mini player bar for iOS
