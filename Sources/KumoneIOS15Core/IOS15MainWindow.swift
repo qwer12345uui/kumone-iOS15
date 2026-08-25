@@ -178,6 +178,7 @@ final class IOS15MusicStore: ObservableObject {
     private var remoteCommandsInstalled = false
     private var audioObservers: [NSObjectProtocol] = []
     private var wasPlayingBeforeInterruption = false
+    private var backgroundPlaybackExpected = false
 
     init() {
         loadPlayHistory()
@@ -250,6 +251,7 @@ final class IOS15MusicStore: ObservableObject {
             installRemoteCommandsIfNeeded()
             player.play()
             isPlaying = true
+            backgroundPlaybackExpected = true
             recordPlayback(of: track)
             publishNowPlayingInfo(for: track)
         } catch {
@@ -325,12 +327,61 @@ final class IOS15MusicStore: ObservableObject {
 
         audioObservers.append(
             center.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.backgroundPlaybackExpected = self?.isPlaying ?? false
+                    self?.refreshNowPlayingPlaybackState()
+                }
+            }
+        )
+
+        audioObservers.append(
+            center.addObserver(
+                forName: UIApplication.willEnterForegroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.restoreAudioSessionAfterActivation()
+                }
+            }
+        )
+
+        audioObservers.append(
+            center.addObserver(
                 forName: UIApplication.didBecomeActiveNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.restoreAudioSessionAfterActivation()
+                }
+            }
+        )
+
+        audioObservers.append(
+            center.addObserver(
+                forName: AVPlayerItem.playbackStalledNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    self?.recoverFromPlaybackStall(notification)
+                }
+            }
+        )
+
+        audioObservers.append(
+            center.addObserver(
+                forName: AVPlayerItem.failedToPlayToEndTimeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    self?.reportPlaybackFailure(notification)
                 }
             }
         )
@@ -375,9 +426,35 @@ final class IOS15MusicStore: ObservableObject {
 
     private func restoreAudioSessionAfterActivation() {
         guard currentTrack != nil else { return }
-        // Reassert the category after foregrounding without forcing playback if the
-        // user intentionally paused from the lock screen or Control Center.
+        // Reassert the category after foregrounding. Only restart when the user
+        // had left playback running before the app backgrounded; a user pause from
+        // the lock screen or Control Center clears this expectation.
         try? configurePlaybackSession()
+        if backgroundPlaybackExpected,
+           player?.timeControlStatus != .playing {
+            resumePlayback()
+        } else {
+            refreshNowPlayingPlaybackState()
+        }
+    }
+
+    private func recoverFromPlaybackStall(_ notification: Notification) {
+        guard let item = notification.object as? AVPlayerItem,
+              item === player?.currentItem,
+              backgroundPlaybackExpected
+        else { return }
+        // Re-issue play after a transient stream stall; AVPlayer retains its item
+        // and buffer, so this does not restart the track from the beginning.
+        resumePlayback()
+    }
+
+    private func reportPlaybackFailure(_ notification: Notification) {
+        guard let item = notification.object as? AVPlayerItem,
+              item === player?.currentItem
+        else { return }
+        isPlaying = false
+        backgroundPlaybackExpected = false
+        errorMessage = "当前音频流已中断，请返回应用后重新播放。"
         refreshNowPlayingPlaybackState()
     }
 
@@ -413,6 +490,7 @@ final class IOS15MusicStore: ObservableObject {
             try configurePlaybackSession()
             player.play()
             isPlaying = true
+            backgroundPlaybackExpected = true
             refreshNowPlayingPlaybackState()
         } catch {
             errorMessage = "无法恢复系统音频会话，请检查音频输出后重试。"
@@ -425,6 +503,7 @@ final class IOS15MusicStore: ObservableObject {
         guard let player else { return }
         player.pause()
         isPlaying = false
+        backgroundPlaybackExpected = false
         refreshNowPlayingPlaybackState()
     }
 
@@ -461,6 +540,7 @@ final class IOS15MusicStore: ObservableObject {
         player = nil
         currentTrack = nil
         isPlaying = false
+        backgroundPlaybackExpected = false
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
