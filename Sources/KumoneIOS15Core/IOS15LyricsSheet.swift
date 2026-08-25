@@ -69,16 +69,11 @@ struct IOS15LyricsSheet: View {
                                     .foregroundColor(.secondary)
                                 }
 
-                                HStack(spacing: 20) {
+                                HStack(spacing: 30) {
                                     lyricControlButton(
                                         symbol: "backward.end.fill",
                                         label: "上一曲",
                                         action: store.playPrevious
-                                    )
-                                    lyricControlButton(
-                                        symbol: store.playbackMode.symbolName,
-                                        label: "播放模式：\(store.playbackMode.title)",
-                                        action: store.cyclePlaybackMode
                                     )
                                     lyricControlButton(
                                         symbol: store.isPlaying ? "pause.circle.fill" : "play.circle.fill",
@@ -93,9 +88,8 @@ struct IOS15LyricsSheet: View {
                                     )
                                     Button(action: store.cyclePlaybackRate) {
                                         Text(store.playbackRateLabel)
-                                            .font(.caption.weight(.bold))
-                                            .frame(width: 36, height: 36)
-                                            .background(Color.pink.opacity(0.15), in: Circle())
+                                            .font(.title3.weight(.semibold))
+                                            .frame(width: 42, height: 38)
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                     .accessibilityLabel("播放倍速：\(store.playbackRateLabel)")

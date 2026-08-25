@@ -485,6 +485,13 @@ final class IOS15MusicStore: ObservableObject {
         UserDefaults.standard.set(playbackMode.rawValue, forKey: playbackModeKey)
     }
 
+    /// Compact-player mode button: deliberately toggles only the two requested
+    /// automatic modes, random play and repeat-one.
+    func toggleShuffleOrRepeatOne() {
+        playbackMode = playbackMode == .shuffle ? .repeatOne : .shuffle
+        UserDefaults.standard.set(playbackMode.rawValue, forKey: playbackModeKey)
+    }
+
     private func loadPlaybackMode() {
         guard let rawValue = UserDefaults.standard.string(forKey: playbackModeKey),
               let mode = IOS15PlaybackMode(rawValue: rawValue) else { return }
@@ -900,7 +907,13 @@ private struct IOS15MiniPlayer: View {
 
     var body: some View {
         if let track = store.currentTrack {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                miniControl(
+                    symbol: store.playbackMode == .repeatOne ? "repeat.1" : "shuffle",
+                    label: "播放模式：\(store.playbackMode.title)",
+                    action: store.toggleShuffleOrRepeatOne
+                )
+
                 Button {
                     lyricsTrack = track
                 } label: {
@@ -928,12 +941,6 @@ private struct IOS15MiniPlayer: View {
                 .accessibilityLabel("显示歌词")
                 Spacer(minLength: 2)
                 miniControl(symbol: "backward.end.fill", label: "上一曲", action: store.playPrevious)
-                miniControl(
-                    symbol: store.playbackMode.symbolName,
-                    label: "播放模式：\(store.playbackMode.title)",
-                    action: store.cyclePlaybackMode
-                )
-
                 if store.isPreparingPlayback {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle())
