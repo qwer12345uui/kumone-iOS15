@@ -247,31 +247,40 @@ final class IOS15MusicStore: ObservableObject {
     func play(_ track: Track) async {
         currentTrack = track
         errorMessage = nil
+        isPlaying = false
+        isPreparingPlayback = true
+
+        let url: URL
         do {
             let stream = try await NeteaseAPI.songURL(ids: [track.id], level: "standard").first
-            guard let rawURL = stream?.url,
-                  let url = URL(string: rawURL) else {
-                errorMessage = "该歌曲当前没有可用音频地址。"
-                isPlaying = false
+            guard let rawURL = stream?.url, let resolvedURL = URL(string: rawURL) else {
+                errorMessage = "播放地址响应中没有可用音频流。"
+                isPreparingPlayback = false
                 return
             }
-            try configurePlaybackSession()
-            player?.pause()
-            playerItemStatusObservation?.invalidate()
-
-            let item = AVPlayerItem(asset: AVURLAsset(url: url))
-            let player = AVPlayer(playerItem: item)
-            player.automaticallyWaitsToMinimizeStalling = true
-            self.player = player
-            isPlaying = false
-            isPreparingPlayback = true
-            observePlaybackReadiness(item, track: track)
-            installRemoteCommandsIfNeeded()
+            url = resolvedURL
         } catch {
             errorMessage = "播放地址请求失败：\(error.localizedDescription)"
-            isPlaying = false
             isPreparingPlayback = false
+            return
         }
+
+        do {
+            try configurePlaybackSession()
+        } catch {
+            errorMessage = "音频会话初始化失败：\(error.localizedDescription)"
+            isPreparingPlayback = false
+            return
+        }
+
+        player?.pause()
+        playerItemStatusObservation?.invalidate()
+        let item = AVPlayerItem(asset: AVURLAsset(url: url))
+        let player = AVPlayer(playerItem: item)
+        player.automaticallyWaitsToMinimizeStalling = true
+        self.player = player
+        observePlaybackReadiness(item, track: track)
+        installRemoteCommandsIfNeeded()
     }
 
     private func observePlaybackReadiness(_ item: AVPlayerItem, track: Track) {
@@ -344,10 +353,12 @@ final class IOS15MusicStore: ObservableObject {
     /// alive while the app is backgrounded or the device is locked.
     private func configurePlaybackSession() throws {
         let session = AVAudioSession.sharedInstance()
+        // Keep the iOS 15 session contract minimal. The long-form policy is not
+        // needed for background audio and can reject a category change on devices
+        // with certain active audio routes, yielding OSStatus -50.
         try session.setCategory(
             .playback,
             mode: .default,
-            policy: .longFormAudio,
             options: [.allowAirPlay, .allowBluetoothA2DP]
         )
         try session.setActive(true)
