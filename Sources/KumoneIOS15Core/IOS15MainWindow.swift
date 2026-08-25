@@ -175,6 +175,7 @@ final class IOS15MusicStore: ObservableObject {
 
     private let playHistoryKey = "kumone.ios15.play-history.v1"
     private var player: AVPlayer?
+    private var playerItemStatusObservation: NSKeyValueObservation?
     private var remoteCommandsInstalled = false
     private var audioObservers: [NSObjectProtocol] = []
     private var wasPlayingBeforeInterruption = false
@@ -239,24 +240,71 @@ final class IOS15MusicStore: ObservableObject {
         do {
             let stream = try await NeteaseAPI.songURL(ids: [track.id], level: "standard").first
             guard let rawURL = stream?.url,
-                  let url = URL(string: rawURL.replacingOccurrences(of: "http://", with: "https://")) else {
-                errorMessage = "该歌曲当前无法播放。"
+                  let item = makePlayerItem(rawURL: rawURL) else {
+                errorMessage = "该歌曲当前无法获取可用音频地址。"
                 isPlaying = false
                 return
             }
             try configurePlaybackSession()
             self.player?.pause()
-            let player = AVPlayer(url: url)
+            let player = AVPlayer(playerItem: item)
+            player.automaticallyWaitsToMinimizeStalling = true
             self.player = player
+            isPlaying = false
+            backgroundPlaybackExpected = false
+            observePlayerItem(item, for: track)
             installRemoteCommandsIfNeeded()
-            player.play()
+        } catch {
+            errorMessage = "播放地址获取失败，请稍后重试。"
+            isPlaying = false
+        }
+    }
+
+    /// NetEase returns signed CDN links. Keep their original scheme instead of
+    /// rewriting HTTP to HTTPS: the app's transport policy already permits the
+    /// supplied endpoint, while some regional CDN links do not negotiate TLS.
+    private func makePlayerItem(rawURL: String) -> AVPlayerItem? {
+        guard let url = URL(string: rawURL) else { return nil }
+        let headers = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Referer": "https://music.163.com/"
+        ]
+        let asset = AVURLAsset(
+            url: url,
+            options: [AVURLAssetHTTPHeaderFieldsKey: headers]
+        )
+        return AVPlayerItem(asset: asset)
+    }
+
+    private func observePlayerItem(_ item: AVPlayerItem, for track: Track) {
+        playerItemStatusObservation?.invalidate()
+        playerItemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                self?.handlePlayerItemStatus(item, track: track)
+            }
+        }
+    }
+
+    private func handlePlayerItemStatus(_ item: AVPlayerItem, track: Track) {
+        guard item === player?.currentItem else { return }
+        switch item.status {
+        case .readyToPlay:
+            guard !isPlaying else { return }
+            player?.play()
             isPlaying = true
             backgroundPlaybackExpected = true
             recordPlayback(of: track)
             publishNowPlayingInfo(for: track)
-        } catch {
-            errorMessage = "播放地址获取失败，请稍后重试。"
+        case .failed:
             isPlaying = false
+            backgroundPlaybackExpected = false
+            let reason = item.error?.localizedDescription ?? "音频流无法解码或被服务器拒绝。"
+            errorMessage = "播放失败：\(reason)"
+            refreshNowPlayingPlaybackState()
+        case .unknown:
+            break
+        @unknown default:
+            break
         }
     }
 
@@ -537,6 +585,8 @@ final class IOS15MusicStore: ObservableObject {
 
     func dismissCurrentTrack() {
         player?.pause()
+        playerItemStatusObservation?.invalidate()
+        playerItemStatusObservation = nil
         player = nil
         currentTrack = nil
         isPlaying = false
