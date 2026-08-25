@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import MediaPlayer
 import SwiftUI
 import UIKit
 
@@ -172,6 +173,7 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var isPlaying = false
 
     private var player: AVPlayer?
+    private var remoteCommandsInstalled = false
 
     func loadRecommendations(force: Bool = false) async {
         guard force || recommendations.isEmpty, !isLoadingRecommendations else { return }
@@ -232,24 +234,99 @@ final class IOS15MusicStore: ObservableObject {
                 isPlaying = false
                 return
             }
+            try configurePlaybackSession()
             let player = AVPlayer(url: url)
             self.player = player
+            installRemoteCommandsIfNeeded()
             player.play()
             isPlaying = true
+            publishNowPlayingInfo(for: track)
         } catch {
             errorMessage = "播放地址获取失败，请稍后重试。"
             isPlaying = false
         }
     }
 
-    func togglePlayback() {
-        guard let player else { return }
-        if isPlaying {
-            player.pause()
-        } else {
-            player.play()
+    /// Selects a long-form audio session before AVPlayer starts. Combined with the
+    /// `audio` background mode in Info.plist, this keeps user-initiated playback
+    /// alive while the app is backgrounded or the device is locked.
+    private func configurePlaybackSession() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(
+            .playback,
+            mode: .default,
+            policy: .longFormAudio,
+            options: [.allowAirPlay, .allowBluetoothA2DP]
+        )
+        try session.setActive(true)
+    }
+
+    private func installRemoteCommandsIfNeeded() {
+        guard !remoteCommandsInstalled else { return }
+        remoteCommandsInstalled = true
+
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.resumePlayback() }
+            return .success
         }
-        isPlaying.toggle()
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.pausePlayback() }
+            return .success
+        }
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.togglePlayback() }
+            return .success
+        }
+    }
+
+    private func resumePlayback() {
+        guard let player else { return }
+        player.play()
+        isPlaying = true
+        refreshNowPlayingPlaybackState()
+    }
+
+    private func pausePlayback() {
+        guard let player else { return }
+        player.pause()
+        isPlaying = false
+        refreshNowPlayingPlaybackState()
+    }
+
+    private func publishNowPlayingInfo(for track: Track) {
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.name,
+            MPMediaItemPropertyArtist: track.artistNames,
+            MPMediaItemPropertyAlbumTitle: track.album.name,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+        ]
+        let seconds = player?.currentTime().seconds ?? 0
+        if seconds.isFinite { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = seconds }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func refreshNowPlayingPlaybackState() {
+        guard let track = currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        publishNowPlayingInfo(for: track)
+    }
+
+    func togglePlayback() {
+        if isPlaying {
+            pausePlayback()
+        } else {
+            resumePlayback()
+        }
     }
 
     func dismissCurrentTrack() {
@@ -257,6 +334,8 @@ final class IOS15MusicStore: ObservableObject {
         player = nil
         currentTrack = nil
         isPlaying = false
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 
