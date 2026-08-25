@@ -34,10 +34,16 @@ public struct IOS15MainWindow: View {
         // A safe-area inset places the visual frame above the home indicator
         // without adding a drag recognizer that could steal page scrolling.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            IOS15GlassTabBar(selection: $selectedTab)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
+            // Search owns the lower safe area while its mini player is visible.
+            // Removing the glass bar from that same edge prevents the two controls
+            // from stacking over each other; dismissing the player restores it.
+            if !(selectedTab == .search && store.currentTrack != nil) {
+                IOS15GlassTabBar(selection: $selectedTab)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .onAppear {
             selectionFeedback.prepare()
@@ -49,6 +55,10 @@ public struct IOS15MainWindow: View {
         .animation(
             .spring(response: 0.28, dampingFraction: 0.86, blendDuration: 0),
             value: selectedTab
+        )
+        .animation(
+            .spring(response: 0.28, dampingFraction: 0.9, blendDuration: 0),
+            value: store.currentTrack?.id
         )
         .tint(Color(red: 0.78, green: 0.12, blue: 0.18))
     }
@@ -241,6 +251,13 @@ final class IOS15MusicStore: ObservableObject {
         }
         isPlaying.toggle()
     }
+
+    func dismissCurrentTrack() {
+        player?.pause()
+        player = nil
+        currentTrack = nil
+        isPlaying = false
+    }
 }
 
 private struct IOS15HomeTab: View {
@@ -415,10 +432,14 @@ private struct IOS15SearchTab: View {
                     .listStyle(PlainListStyle())
                 }
             }
+            // The content title is intentional: the system navigation bar stays
+            // hidden so it never reserves vertical space above search results.
             .navigationBarHidden(true)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 IOS15MiniPlayer(store: store)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            .animation(.spring(response: 0.28, dampingFraction: 0.9), value: store.currentTrack?.id)
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
@@ -546,6 +567,14 @@ private struct IOS15MiniPlayer: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel(store.isPlaying ? "暂停" : "播放")
+
+                Button(action: store.dismissCurrentTrack) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 34)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel("关闭迷你播放器")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
