@@ -62,6 +62,19 @@ public struct IOS15MainWindow: View {
             value: store.currentTrack?.id
         )
         .tint(Color(red: 0.78, green: 0.12, blue: 0.18))
+        .alert(
+            "播放提示",
+            isPresented: Binding(
+                get: { store.errorMessage != nil },
+                set: { if !$0 { store.dismissError() } }
+            )
+        ) {
+            Button("好", role: .cancel) {
+                store.dismissError()
+            }
+        } message: {
+            Text(store.errorMessage ?? "")
+        }
     }
 }
 
@@ -171,10 +184,12 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var currentTrack: Track?
     @Published private(set) var isPlaying = false
+    @Published private(set) var isPreparingPlayback = false
     @Published private(set) var playHistory: [Track] = []
 
     private let playHistoryKey = "kumone.ios15.play-history.v1"
     private var player: AVPlayer?
+    private var playerItemStatusObservation: NSKeyValueObservation?
     private var remoteCommandsInstalled = false
 
     init() {
@@ -235,23 +250,70 @@ final class IOS15MusicStore: ObservableObject {
         do {
             let stream = try await NeteaseAPI.songURL(ids: [track.id], level: "standard").first
             guard let rawURL = stream?.url,
-                  let url = URL(string: rawURL.replacingOccurrences(of: "http://", with: "https://")) else {
-                errorMessage = "该歌曲当前无法播放。"
+                  let url = URL(string: rawURL) else {
+                errorMessage = "该歌曲当前没有可用音频地址。"
                 isPlaying = false
                 return
             }
             try configurePlaybackSession()
-            let player = AVPlayer(url: url)
+            player?.pause()
+            playerItemStatusObservation?.invalidate()
+
+            let item = AVPlayerItem(asset: AVURLAsset(url: url))
+            let player = AVPlayer(playerItem: item)
+            player.automaticallyWaitsToMinimizeStalling = true
             self.player = player
+            isPlaying = false
+            isPreparingPlayback = true
+            observePlaybackReadiness(item, track: track)
             installRemoteCommandsIfNeeded()
-            player.play()
+        } catch {
+            errorMessage = "播放地址请求失败：\(error.localizedDescription)"
+            isPlaying = false
+            isPreparingPlayback = false
+        }
+    }
+
+    private func observePlaybackReadiness(_ item: AVPlayerItem, track: Track) {
+        playerItemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                self?.handlePlaybackItemStatus(item, track: track)
+            }
+        }
+        Task { @MainActor [weak self, weak item] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let self, let item, item === self.player?.currentItem,
+                  item.status == .unknown else { return }
+            self.isPreparingPlayback = false
+            self.errorMessage = "音频流 15 秒内未就绪。请确认网络可访问网易云 CDN，然后重试。"
+        }
+    }
+
+    private func handlePlaybackItemStatus(_ item: AVPlayerItem, track: Track) {
+        guard item === player?.currentItem else { return }
+        switch item.status {
+        case .readyToPlay:
+            guard !isPlaying else { return }
+            isPreparingPlayback = false
+            player?.play()
             isPlaying = true
             recordPlayback(of: track)
             publishNowPlayingInfo(for: track)
-        } catch {
-            errorMessage = "播放地址获取失败，请稍后重试。"
+        case .failed:
             isPlaying = false
+            isPreparingPlayback = false
+            let reason = item.error?.localizedDescription ?? "服务器拒绝了该音频流。"
+            errorMessage = "音频流加载失败：\(reason)"
+            refreshNowPlayingPlaybackState()
+        case .unknown:
+            break
+        @unknown default:
+            break
         }
+    }
+
+    func dismissError() {
+        errorMessage = nil
     }
 
     func clearPlayHistory() {
@@ -352,6 +414,7 @@ final class IOS15MusicStore: ObservableObject {
     }
 
     func togglePlayback() {
+        guard !isPreparingPlayback else { return }
         if isPlaying {
             pausePlayback()
         } else {
@@ -361,9 +424,12 @@ final class IOS15MusicStore: ObservableObject {
 
     func dismissCurrentTrack() {
         player?.pause()
+        playerItemStatusObservation?.invalidate()
+        playerItemStatusObservation = nil
         player = nil
         currentTrack = nil
         isPlaying = false
+        isPreparingPlayback = false
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -679,12 +745,19 @@ private struct IOS15MiniPlayer: View {
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel("显示歌词")
                 Spacer(minLength: 0)
-                Button(action: store.togglePlayback) {
-                    Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                if store.isPreparingPlayback {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
                         .frame(width: 34, height: 34)
+                        .accessibilityLabel("正在加载音频流")
+                } else {
+                    Button(action: store.togglePlayback) {
+                        Image(systemName: store.isPlaying ? "pause.fill" : "play.fill")
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel(store.isPlaying ? "暂停" : "播放")
                 }
-                .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel(store.isPlaying ? "暂停" : "播放")
 
                 Button(action: store.dismissCurrentTrack) {
                     Image(systemName: "xmark")

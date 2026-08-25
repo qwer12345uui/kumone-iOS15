@@ -358,7 +358,9 @@ enum NeteaseAPI {
 
     static func songURL(ids: [Int], level: String) async throws -> [SongURLData] {
         let idString = "[" + ids.map(String.init).joined(separator: ",") + "]"
-        var payload: [String: Any] = ["ids": idString, "level": level, "encodeType": "flac"]
+        // AVPlayer is most reliable with a native MP3 stream across iOS 15–26.
+        // Requesting FLAC here can leave an item permanently unknown on older devices.
+        var payload: [String: Any] = ["ids": idString, "level": level, "encodeType": "mp3"]
         if level == "sky" { payload["immerseType"] = "c51" }
         return try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
     }
