@@ -36,6 +36,10 @@ public struct IOS15MainWindow: View {
         }
         // UITabBar owns the equal-width hit targets, materials, VoiceOver order,
         // and bottom safe area. There are no custom drag gestures in this flow.
+        // When built with the iOS 26 SDK, the standard tab bar automatically adopts
+        // Liquid Glass. Keep its background system-managed instead of layering a
+        // custom blur or glass effect over it.
+        .liquidGlassTabBarBehavior()
         .onAppear {
             selectionFeedback.prepare()
         }
@@ -48,6 +52,20 @@ public struct IOS15MainWindow: View {
             value: selectedTab
         )
         .tint(Color(red: 0.78, green: 0.12, blue: 0.18))
+    }
+}
+
+private extension View {
+    /// iOS 26's native tab bar floats in the Liquid Glass navigation layer. The
+    /// system, rather than a custom gesture, detects scroll direction and handles
+    /// expansion, minimization, materials, accessibility, and safe areas.
+    @ViewBuilder
+    func liquidGlassTabBarBehavior() -> some View {
+        if #available(iOS 26.0, *) {
+            self.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            self
+        }
     }
 }
 
