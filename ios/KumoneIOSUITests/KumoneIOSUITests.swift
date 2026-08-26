@@ -31,7 +31,7 @@ final class KumoneIOSUITests: XCTestCase {
         speedButton.tap()
         XCTAssertTrue(speedButton.label.contains("1.25×"), "倍速按钮未切换到 1.25×")
         XCTAssertTrue(app.buttons["下一曲"].exists)
-        XCTAssertTrue(app.buttons["暂停"].exists)
+        XCTAssertTrue(app.buttons["播放"].exists)
 
         let moreButton = app.buttons["更多播放控制"]
         XCTAssertTrue(moreButton.exists, "紧凑播放器缺少更多控制入口")
