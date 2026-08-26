@@ -24,8 +24,6 @@ struct IOS15MiniPlayer: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(playerBackground)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("当前音源：\(store.audioSourceStatus)")
             .sheet(item: $lyricsTrack) { selectedTrack in
                 IOS15LyricsSheet(track: selectedTrack, store: store)
             }
