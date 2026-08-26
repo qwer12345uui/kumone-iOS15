@@ -154,6 +154,7 @@ struct IOS15MiniPlayer: View {
         }
         .buttonStyle(PlainButtonStyle())
         .accessibilityLabel("播放倍速：\(store.playbackRateLabel)")
+        .accessibilityIdentifier("ios15-player-rate")
     }
 
     @ViewBuilder

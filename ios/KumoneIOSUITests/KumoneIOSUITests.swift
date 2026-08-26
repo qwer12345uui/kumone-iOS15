@@ -26,8 +26,10 @@ final class KumoneIOSUITests: XCTestCase {
         app.launchArguments.append("-KumonePlayerPreview")
         app.launch()
 
-        let speedButton = app.buttons["播放倍速：1×"]
+        let speedButton = app.buttons["ios15-player-rate"]
         XCTAssertTrue(speedButton.waitForExistence(timeout: 8), "紧凑播放器缺少倍速按钮")
+        speedButton.tap()
+        XCTAssertTrue(speedButton.label.contains("1.25×"), "倍速按钮未切换到 1.25×")
         XCTAssertTrue(app.buttons["下一曲"].exists)
         XCTAssertTrue(app.buttons["暂停"].exists)
 
