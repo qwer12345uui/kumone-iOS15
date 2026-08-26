@@ -109,10 +109,12 @@ struct IOS15MiniPlayer: View {
                 .accessibilityLabel(store.isMuted ? "取消静音" : "静音")
             }
 
-            HStack(spacing: 18) {
+            HStack(spacing: 8) {
+                playbackModeButton
                 compactButton(symbol: "backward.end.fill", label: "上一曲", action: store.playPrevious)
                 playPauseButton
                 compactButton(symbol: "forward.end.fill", label: "下一曲", action: store.playNext)
+                playbackRateButton
                 progressControl(for: track)
             }
         }
@@ -150,16 +152,42 @@ struct IOS15MiniPlayer: View {
 
     private var playerTransport: some View {
         HStack(spacing: 16) {
-            compactButton(
-                symbol: store.playbackMode == .repeatOne ? "repeat.1" : "shuffle",
-                label: "播放模式：\(store.playbackMode.title)",
-                action: store.toggleShuffleOrRepeatOne
-            )
+            playbackModeButton
             compactButton(symbol: "backward.end.fill", label: "上一曲", action: store.playPrevious)
             playPauseButton
             compactButton(symbol: "forward.end.fill", label: "下一曲", action: store.playNext)
-            compactButton(symbol: "arrow.triangle.2.circlepath", label: "切换播放模式", action: store.cyclePlaybackMode)
+            playbackRateButton
         }
+    }
+
+    private var playbackModeButton: some View {
+        compactButton(
+            symbol: playbackModeSymbol,
+            label: "播放模式：\(store.playbackMode.title)",
+            action: store.cyclePlaybackMode
+        )
+    }
+
+    private var playbackModeSymbol: String {
+        switch store.playbackMode {
+        case .shuffle:
+            return "shuffle"
+        case .repeatOne:
+            return "repeat.1"
+        default:
+            return "repeat"
+        }
+    }
+
+    private var playbackRateButton: some View {
+        Button(action: store.cyclePlaybackRate) {
+            Text(store.playbackRateLabel)
+                .font(.caption2.weight(.bold))
+                .monospacedDigit()
+                .frame(width: 34, height: 32)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel("播放倍速：\(store.playbackRateLabel)")
     }
 
     @ViewBuilder

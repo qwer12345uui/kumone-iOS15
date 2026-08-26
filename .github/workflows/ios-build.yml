@@ -54,12 +54,27 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Restore Swift package cache
+        id: swiftpm-cache-build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/KumoneSourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: macos-26-xcode-26.6-ios15-swiftpm-${{ hashFiles('Package.swift', 'Package.resolved', 'ios/KumoneIOSPackage/Package.swift', 'ios/KumoneIOS.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            macos-26-xcode-26.6-ios15-swiftpm-
+
+      - name: Report Swift package cache
+        run: echo "Swift package cache hit: ${{ steps.swiftpm-cache-build.outputs.cache-hit }}"
+
       - name: Resolve Swift package dependencies
         run: |
           set -euo pipefail
           xcodebuild -resolvePackageDependencies \
             -workspace ios/KumoneIOS.xcworkspace \
-            -scheme KumoneIOS
+            -scheme KumoneIOS \
+            -clonedSourcePackagesDirPath "$HOME/Library/Caches/KumoneSourcePackages"
 
       - name: Build for generic iOS device
         run: |
@@ -69,6 +84,7 @@ jobs:
             -scheme KumoneIOS \
             -configuration Release \
             -destination 'generic/platform=iOS' \
+            -clonedSourcePackagesDirPath "$HOME/Library/Caches/KumoneSourcePackages" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -132,6 +148,20 @@ jobs:
         with:
           submodules: false
 
+      - name: Restore Swift package cache
+        id: swiftpm-cache-test
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/KumoneSourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: macos-26-xcode-26.6-ios15-swiftpm-${{ hashFiles('Package.swift', 'Package.resolved', 'ios/KumoneIOSPackage/Package.swift', 'ios/KumoneIOS.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            macos-26-xcode-26.6-ios15-swiftpm-
+
+      - name: Report Swift package cache
+        run: echo "Swift package cache hit: ${{ steps.swiftpm-cache-test.outputs.cache-hit }}"
+
       - name: Report installed Simulator runtimes
         run: |
           set -euo pipefail
@@ -176,6 +206,7 @@ jobs:
             -workspace ios/KumoneIOS.xcworkspace \
             -scheme KumoneIOS \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -clonedSourcePackagesDirPath "$HOME/Library/Caches/KumoneSourcePackages" \
             -derivedDataPath "$RUNNER_TEMP/ios15-test/DerivedData" \
             -resultBundlePath "$RUNNER_TEMP/ios15-test/KumoneIOS-iOS15.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
