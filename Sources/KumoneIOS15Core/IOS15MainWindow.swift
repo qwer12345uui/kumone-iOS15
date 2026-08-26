@@ -542,9 +542,10 @@ final class IOS15MusicStore: ObservableObject {
     }
 
     var playbackRateLabel: String {
-        abs(playbackRate.rounded() - playbackRate) < 0.001
-            ? String(format: "%.0f×", playbackRate)
-            : String(format: "%.2g×", playbackRate)
+        let text = String(format: "%.2f", playbackRate)
+            .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)
+        return "\(text)×"
     }
 
     private func handlePlaybackFinished() {
