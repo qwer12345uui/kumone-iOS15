@@ -19,7 +19,14 @@ public struct IOS15MainWindow: View {
         let environment = ProcessInfo.processInfo.environment
         let installPreview = arguments.contains("-KumonePlayerPreview")
             || environment["KUMONE_UI_TEST_PREVIEW_TRACK"] == "1"
-        _store = StateObject(wrappedValue: IOS15MusicStore(installingUITestPreview: installPreview))
+        let persistHistoryPreview = arguments.contains("-KumoneHistoryRecordPreview")
+            || environment["KUMONE_UI_TEST_HISTORY_RECORD"] == "1"
+        _store = StateObject(
+            wrappedValue: IOS15MusicStore(
+                installingUITestPreview: installPreview,
+                persistingUITestHistory: persistHistoryPreview
+            )
+        )
         // The standard tab bar is replaced by an accessible SwiftUI bar below.
         // Hiding it at appearance time retains TabView's content switching while
         // avoiding a second navigation layer behind the floating glass container.
@@ -43,19 +50,20 @@ public struct IOS15MainWindow: View {
             IOS15ProfileTab(store: store, account: account)
                 .tag(IOS15Tab.profile)
         }
-        // The bar is inserted first; the outer mini-player inset then reserves
-        // the physical bottom edge, so navigation consistently sits above the
-        // player and remains tappable on every tab.
+        // Keep the floating transport physically above the navigation bar. A
+        // single inset preserves the tab bar's bottom safe area on iOS 15 while
+        // allowing the player to float above it without covering tab targets.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            IOS15GlassTabBar(selection: $selectedTab)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            IOS15MiniPlayer(store: store)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+            VStack(spacing: 6) {
+                IOS15MiniPlayer(store: store)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                IOS15GlassTabBar(selection: $selectedTab)
+                    .padding(.horizontal, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 6)
         }
         .onAppear {
             selectionFeedback.prepare()
@@ -245,35 +253,54 @@ final class IOS15MusicStore: ObservableObject {
     @Published private(set) var audioSourceStatus = "内置播放服务"
 
     private let playHistoryKey = "kumone.ios15.play-history.v1"
+    private let playHistoryCountKey = "kumone.ios15.play-history-counts.v1"
+    private let playHistoryDateKey = "kumone.ios15.play-history-dates.v1"
     private let playbackModeKey = "kumone.ios15.playback-mode.v1"
+    private var playHistoryCounts: [String: Int] = [:]
+    private var playHistoryDates: [String: TimeInterval] = [:]
     private var player: AVPlayer?
     private var playerItemStatusObservation: NSKeyValueObservation?
     private var itemEndObserver: NSObjectProtocol?
     private var timeObserver: Any?
     private var remoteCommandsInstalled = false
 
-    init(installingUITestPreview: Bool = false) {
+    init(installingUITestPreview: Bool = false, persistingUITestHistory: Bool = false) {
         loadPlayHistory()
         loadPlaybackMode()
         if installingUITestPreview {
             installUITestPreviewTrack()
         }
+        if persistingUITestHistory {
+            installUITestHistory()
+        }
     }
 
     private func installUITestPreviewTrack() {
-        let fixture = """
-        [
-          {"id": -15001, "name": "播放器测试歌曲", "ar": [{"id": 1, "name": "Kumone"}], "al": {"id": 1, "name": "iOS 15 测试专辑", "picUrl": null}, "dt": 240000, "fee": 0, "mv": 0, "no": 1},
-          {"id": -15002, "name": "队列测试歌曲", "ar": [{"id": 2, "name": "Kumone"}], "al": {"id": 2, "name": "iOS 15 测试专辑", "picUrl": null}, "dt": 180000, "fee": 0, "mv": 0, "no": 2}
-        ]
-        """
-        guard let data = fixture.data(using: .utf8),
-              let tracks = try? JSONDecoder().decode([Track].self, from: data),
-              let current = tracks.first else { return }
+        guard let tracks = Self.uiTestTracks(), let current = tracks.first else { return }
         currentTrack = current
         playQueue = tracks
         playbackTime = 42
         audioSourceStatus = "测试内置音源"
+    }
+
+    private func installUITestHistory() {
+        guard let tracks = Self.uiTestTracks() else { return }
+        clearPlayHistory()
+        recordPlayback(of: tracks[1])
+        recordPlayback(of: tracks[0])
+        recordPlayback(of: tracks[0])
+        recordPlayback(of: tracks[0])
+    }
+
+    private static func uiTestTracks() -> [Track]? {
+        let fixture = """
+        [
+          {"id": -15001, "name": "播放器测试歌曲", "ar": [{"id": 1, "name": "Kumone"}], "al": {"id": 1, "name": "iOS 15 测试专辑", "picUrl": null}, "dt": 240000, "fee": 0, "mv": 0, "no": 1},
+          {"id": -15002, "name": "队列测试歌曲", "ar": [{"id": 2, "name": "Kumone"}], "al": {"id": 2, "name": "Kumone 队列专辑", "picUrl": null}, "dt": 180000, "fee": 0, "mv": 0, "no": 2}
+        ]
+        """
+        guard let data = fixture.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([Track].self, from: data)
     }
 
     func loadRecommendations(force: Bool = false) async {
@@ -372,8 +399,31 @@ final class IOS15MusicStore: ObservableObject {
         await startPlayback(track)
     }
 
+    func playFromHistory(_ track: Track) async {
+        setPlayQueue(from: playHistory, selecting: track)
+        await startPlayback(track)
+    }
+
+    func playAllHistory(_ source: [Track]? = nil) async {
+        let history = source ?? playHistory
+        guard let first = history.first else { return }
+        setPlayQueue(from: history, selecting: first)
+        await startPlayback(first)
+    }
+
+    func historyPlayCount(for track: Track) -> Int {
+        playHistoryCounts[String(track.id)] ?? 0
+    }
+
+    func recentHistory(withinWeek: Bool) -> [Track] {
+        guard withinWeek else { return playHistory }
+        let threshold = Date().addingTimeInterval(-7 * 24 * 60 * 60).timeIntervalSince1970
+        return playHistory.filter { (playHistoryDates[String($0.id)] ?? 0) >= threshold }
+    }
+
     private func startPlayback(_ track: Track) async {
         currentTrack = track
+        recordPlayback(of: track)
         errorMessage = nil
         isPlaying = false
         isPreparingPlayback = true
@@ -469,7 +519,6 @@ final class IOS15MusicStore: ObservableObject {
             isPreparingPlayback = false
             player?.playImmediately(atRate: playbackRate)
             isPlaying = true
-            recordPlayback(of: track)
             publishNowPlayingInfo(for: track)
         case .failed:
             isPlaying = false
@@ -597,24 +646,56 @@ final class IOS15MusicStore: ObservableObject {
 
     func clearPlayHistory() {
         playHistory = []
+        playHistoryCounts = [:]
+        playHistoryDates = [:]
         UserDefaults.standard.removeObject(forKey: playHistoryKey)
+        UserDefaults.standard.removeObject(forKey: playHistoryCountKey)
+        UserDefaults.standard.removeObject(forKey: playHistoryDateKey)
     }
 
     private func loadPlayHistory() {
-        guard let data = UserDefaults.standard.data(forKey: playHistoryKey),
-              let tracks = try? JSONDecoder().decode([Track].self, from: data)
-        else { return }
-        playHistory = tracks
+        if let data = UserDefaults.standard.data(forKey: playHistoryKey),
+           let tracks = try? JSONDecoder().decode([Track].self, from: data) {
+            playHistory = tracks
+        }
+        playHistoryCounts = Self.intDictionary(from: UserDefaults.standard.dictionary(forKey: playHistoryCountKey))
+        playHistoryDates = Self.timeDictionary(from: UserDefaults.standard.dictionary(forKey: playHistoryDateKey))
     }
 
     private func recordPlayback(of track: Track) {
+        let identifier = String(track.id)
         playHistory.removeAll { $0.id == track.id }
         playHistory.insert(track, at: 0)
         if playHistory.count > 100 {
-            playHistory.removeLast(playHistory.count - 100)
+            let overflow = playHistory.count - 100
+            let discarded = Array(playHistory.suffix(overflow))
+            playHistory.removeLast(overflow)
+            for track in discarded {
+                playHistoryCounts.removeValue(forKey: String(track.id))
+                playHistoryDates.removeValue(forKey: String(track.id))
+            }
         }
+        playHistoryCounts[identifier, default: 0] += 1
+        playHistoryDates[identifier] = Date().timeIntervalSince1970
+
         if let data = try? JSONEncoder().encode(playHistory) {
             UserDefaults.standard.set(data, forKey: playHistoryKey)
+        }
+        UserDefaults.standard.set(playHistoryCounts, forKey: playHistoryCountKey)
+        UserDefaults.standard.set(playHistoryDates, forKey: playHistoryDateKey)
+    }
+
+    private static func intDictionary(from raw: [String: Any]?) -> [String: Int] {
+        guard let raw else { return [:] }
+        return raw.reduce(into: [:]) { result, entry in
+            if let value = entry.value as? NSNumber { result[entry.key] = value.intValue }
+        }
+    }
+
+    private static func timeDictionary(from raw: [String: Any]?) -> [String: TimeInterval] {
+        guard let raw else { return [:] }
+        return raw.reduce(into: [:]) { result, entry in
+            if let value = entry.value as? NSNumber { result[entry.key] = value.doubleValue }
         }
     }
 

@@ -7,47 +7,43 @@ struct IOS15MiniPlayer: View {
     @ObservedObject var store: IOS15MusicStore
     @State private var lyricsTrack: Track?
     @State private var showQueue = false
+    @State private var showCompactControls = false
     @State private var isEditingProgress = false
     @State private var draftProgress = 0.0
 
     var body: some View {
         if let track = store.currentTrack {
-            VStack(spacing: 0) {
-                sourceStatus
-                GeometryReader { proxy in
-                    if proxy.size.width >= 680 {
-                        regularPlayer(for: track)
-                    } else {
-                        compactPlayer(for: track)
-                    }
+            GeometryReader { proxy in
+                if proxy.size.width >= 680 {
+                    regularPlayer(for: track)
+                } else {
+                    compactPlayer(for: track)
                 }
-                .frame(height: 124)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .frame(height: 90)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .background(playerBackground)
-            .overlay(Divider(), alignment: .top)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("当前音源：\(store.audioSourceStatus)")
             .sheet(item: $lyricsTrack) { selectedTrack in
                 IOS15LyricsSheet(track: selectedTrack, store: store)
             }
             .sheet(isPresented: $showQueue) {
                 IOS15PlaybackQueueSheet(store: store)
             }
+            .confirmationDialog("更多播放控制", isPresented: $showCompactControls, titleVisibility: .visible) {
+                Button("上一曲") { store.playPrevious() }
+                Button("切换播放模式（\(store.playbackMode.title)）") { store.cyclePlaybackMode() }
+                Button("歌词") { lyricsTrack = track }
+                Button("播放队列") { showQueue = true }
+                Button(store.isMuted ? "取消静音" : "静音") { store.toggleMuted() }
+                Button("关闭迷你播放器", role: .destructive) { store.dismissCurrentTrack() }
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("当前音源：\(store.audioSourceStatus)")
+            }
         }
-    }
-
-    private var sourceStatus: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "waveform.path.ecg")
-                .font(.caption.weight(.semibold))
-            Text("当前音源：\(store.audioSourceStatus)")
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-        }
-        .foregroundColor(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, 4)
-        .accessibilityLabel("当前音源：\(store.audioSourceStatus)")
     }
 
     private var playerBackground: some View {
@@ -60,9 +56,9 @@ struct IOS15MiniPlayer: View {
     private func regularPlayer(for track: Track) -> some View {
         HStack(spacing: 16) {
             trackIdentity(track)
-                .frame(width: 270, alignment: .leading)
+                .frame(width: 250, alignment: .leading)
 
-            VStack(spacing: 8) {
+            VStack(spacing: 5) {
                 playerTransport
                 progressControl(for: track)
             }
@@ -75,48 +71,20 @@ struct IOS15MiniPlayer: View {
 
     @ViewBuilder
     private func compactPlayer(for track: Track) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 5) {
+        VStack(spacing: 2) {
+            HStack(spacing: 6) {
                 trackIdentity(track)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button {
-                    lyricsTrack = track
-                } label: {
-                    Image(systemName: "quote.bubble")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel("歌词")
-
-                Button {
-                    showQueue = true
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel("播放队列")
-
-                Button(action: store.toggleMuted) {
-                    Image(systemName: store.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel(store.isMuted ? "取消静音" : "静音")
-            }
-
-            HStack(spacing: 8) {
-                playbackModeButton
-                compactButton(symbol: "backward.end.fill", label: "上一曲", action: store.playPrevious)
-                playPauseButton
-                compactButton(symbol: "forward.end.fill", label: "下一曲", action: store.playNext)
                 playbackRateButton
-                progressControl(for: track)
+                compactButton(symbol: "forward.end.fill", label: "下一曲", action: store.playNext)
+                playPauseButton
+                compactButton(symbol: "ellipsis", label: "更多播放控制") {
+                    showCompactControls = true
+                }
             }
+
+            compactProgressControl(for: track)
         }
     }
 
@@ -253,24 +221,7 @@ struct IOS15MiniPlayer: View {
     private func progressControl(for track: Track) -> some View {
         let duration = max(1, track.duration)
         return VStack(spacing: 2) {
-            Slider(
-                value: Binding(
-                    get: { isEditingProgress ? draftProgress : store.playbackTime },
-                    set: { draftProgress = $0 }
-                ),
-                in: 0...duration,
-                onEditingChanged: { editing in
-                    isEditingProgress = editing
-                    if editing {
-                        draftProgress = store.playbackTime
-                    } else {
-                        store.seek(to: draftProgress)
-                    }
-                }
-            )
-            .tint(.red)
-            .accessibilityLabel("播放进度")
-
+            scrubber(duration: duration)
             HStack {
                 Text(timeText(isEditingProgress ? draftProgress : store.playbackTime))
                 Spacer()
@@ -279,6 +230,32 @@ struct IOS15MiniPlayer: View {
             .font(.caption2.monospacedDigit())
             .foregroundColor(.secondary)
         }
+    }
+
+    private func compactProgressControl(for track: Track) -> some View {
+        let duration = max(1, track.duration)
+        return scrubber(duration: duration)
+            .frame(height: 14)
+    }
+
+    private func scrubber(duration: TimeInterval) -> some View {
+        Slider(
+            value: Binding(
+                get: { isEditingProgress ? draftProgress : store.playbackTime },
+                set: { draftProgress = $0 }
+            ),
+            in: 0...duration,
+            onEditingChanged: { editing in
+                isEditingProgress = editing
+                if editing {
+                    draftProgress = store.playbackTime
+                } else {
+                    store.seek(to: draftProgress)
+                }
+            }
+        )
+        .tint(.red)
+        .accessibilityLabel("播放进度")
     }
 
     private func compactButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {

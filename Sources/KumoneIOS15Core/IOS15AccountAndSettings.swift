@@ -563,20 +563,6 @@ struct IOS15ProfileTab: View {
     @State private var showSettings = false
     @State private var showLogin = false
 
-    private var historyHeader: some View {
-        HStack {
-            Text("播放历史")
-            Spacer()
-            if !store.playHistory.isEmpty {
-                Button("清空") {
-                    store.clearPlayHistory()
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
-        }
-    }
-
     var body: some View {
         NavigationView {
             List {
@@ -621,20 +607,21 @@ struct IOS15ProfileTab: View {
                     }
                 }
 
-                Section(header: historyHeader) {
-                    if store.playHistory.isEmpty {
-                        Text("暂无播放记录")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(store.playHistory) { track in
-                            Button {
-                                Task { await store.play(track) }
-                            } label: {
-                                IOS15TrackRow(track: track, isCurrent: store.currentTrack?.id == track.id)
+                Section(header: Text("音乐")) {
+                    NavigationLink(destination: IOS15RecentPlaysView(store: store)) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundColor(.pink)
+                                .frame(width: 26)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("最近播放")
+                                Text(store.playHistory.isEmpty ? "暂无播放记录" : "已记录 \(store.playHistory.count) 首歌曲")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                            .buttonStyle(PlainButtonStyle())
                         }
                     }
+                    .accessibilityLabel("最近播放")
                 }
 
                 Section(header: Text("账户与应用")) {
@@ -673,5 +660,128 @@ struct IOS15ProfileTab: View {
         .task {
             await account.refresh()
         }
+    }
+}
+
+
+private struct IOS15RecentPlaysView: View {
+    private enum TimeRange: String, CaseIterable, Identifiable {
+        case all = "所有时间"
+        case week = "最近一周"
+
+        var id: String { rawValue }
+    }
+
+    @ObservedObject var store: IOS15MusicStore
+    @State private var selectedRange: TimeRange = .all
+
+    private var visibleHistory: [Track] {
+        store.recentHistory(withinWeek: selectedRange == .week)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Picker("播放时间", selection: $selectedRange) {
+                    ForEach(TimeRange.allCases) { range in
+                        Text(range.rawValue).tag(range)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .accessibilityLabel("最近播放时间范围")
+
+                Button {
+                    Task { await store.playAllHistory(visibleHistory) }
+                } label: {
+                    Label("播放全部", systemImage: "play.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.red, in: Capsule())
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(visibleHistory.isEmpty)
+                .accessibilityLabel("播放全部")
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+
+            if visibleHistory.isEmpty {
+                Spacer()
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 38))
+                    .foregroundColor(.secondary)
+                Text(selectedRange == .week ? "最近一周暂无播放记录" : "暂无播放记录")
+                    .foregroundColor(.secondary)
+                    .padding(.top, 10)
+                Spacer()
+            } else {
+                List {
+                    ForEach(Array(visibleHistory.enumerated()), id: \.element.id) { index, track in
+                        Button {
+                            Task { await store.playFromHistory(track) }
+                        } label: {
+                            historyRow(track, index: index + 1)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .accessibilityLabel("最近播放：\(track.name)，\(store.historyPlayCount(for: track)) 次")
+                    }
+                }
+                .listStyle(PlainListStyle())
+            }
+        }
+        .navigationBarTitle("最近播放", displayMode: .large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !store.playHistory.isEmpty {
+                    Button("清空") { store.clearPlayHistory() }
+                }
+            }
+        }
+    }
+
+    private func historyRow(_ track: Track, index: Int) -> some View {
+        HStack(spacing: 12) {
+            Text("\(index)")
+                .font(.subheadline.monospacedDigit())
+                .foregroundColor(.secondary)
+                .frame(width: 24, alignment: .trailing)
+
+            AsyncImage(url: track.album.picUrl?.resizedImageURL(96)) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(0.16))
+            }
+            .frame(width: 48, height: 48)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.name)
+                    .foregroundColor(store.currentTrack?.id == track.id ? .red : .primary)
+                    .lineLimit(1)
+                Text(track.artistNames)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("\(store.historyPlayCount(for: track)) 次")
+                Text(timeText(track.duration))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 3)
+    }
+
+    private func timeText(_ value: TimeInterval) -> String {
+        guard value.isFinite else { return "0:00" }
+        let seconds = max(0, Int(value.rounded(.down)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
