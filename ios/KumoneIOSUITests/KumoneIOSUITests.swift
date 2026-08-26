@@ -34,10 +34,10 @@ final class KumoneIOSUITests: XCTestCase {
         let playbackMode = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放模式：")).firstMatch
         XCTAssertTrue(playbackMode.exists, "紧凑播放器缺少播放模式图标")
 
-        let speedButton = app.buttons["播放倍速：1.0x"]
+        let speedButton = app.buttons["播放倍速：1×"]
         XCTAssertTrue(speedButton.exists, "紧凑播放器缺少倍速按钮")
         speedButton.tap()
-        XCTAssertTrue(app.buttons["播放倍速：1.25x"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["播放倍速：1.25×"].waitForExistence(timeout: 3))
 
         app.buttons["播放队列"].tap()
         XCTAssertTrue(app.navigationBars["播放队列 2 首"].waitForExistence(timeout: 5))
